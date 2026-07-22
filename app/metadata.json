@@ -1,0 +1,6 @@
+{
+  "name": "Gurbani Khoj",
+  "description": "Offline Gurbani Khoj & Nitnem Sahib app for Sri Guru Granth Sahib Ji with advanced search, custom formatting, and bookmark backup",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
