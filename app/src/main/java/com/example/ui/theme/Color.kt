@@ -15,6 +15,7 @@ val TextMedium = Color(0xFF1E293B) // slate-800
 val TextGray = Color(0xFF64748B) // slate-500
 val BorderGray = Color(0xFFE2E8F0) // slate-200
 val Slate50 = Color(0xFFF8FAFC) // slate-50
+val Slate100 = Color(0xFFF1F5F9) // slate-100
 val Slate200 = Color(0xFFE2E8F0) // slate-200
 
 val Purple80 = Color(0xFFD0BCFF)

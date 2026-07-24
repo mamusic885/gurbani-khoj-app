@@ -26,7 +26,9 @@ class GreetingScreenshotTest {
         HomeScreen(
           onNavigateToNitnem = {},
           onNavigateToSearch = {},
-          onNavigateToBookmarks = {}
+          onNavigateToBookmarks = {},
+          onNavigateToSettings = {},
+          onNavigateToAbout = {}
         )
       }
     }

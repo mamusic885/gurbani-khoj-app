@@ -2,6 +2,8 @@ package com.example
 
 import android.os.Bundle
 import android.widget.Toast
+import com.example.data.SggsDatabase
+import com.example.data.LineEntity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -120,10 +122,21 @@ data class Verse(
   val translation: String = ""
 )
 
+enum class SearchFilterType {
+  ALL,          // ਸਭ
+  FIRST_LETTER, // ਪਹਿਲਾ ਅੱਖਰ
+  FULL_TEXT,    // ਪੂਰਾ ਪਾਠ
+  ANG           // ਅੰਗ ਨੰਬਰ
+}
+
 data class SearchResult(
   val baniName: String,
   val fileName: String,
-  val verse: Verse
+  val verse: Verse,
+  val searchMethod: SearchFilterType = SearchFilterType.FULL_TEXT,
+  val highlightRange: IntRange? = null,
+  val matchedQuery: String = "",
+  val ang: Int = 1
 )
 
 fun getBaniFileName(title: String): String {
@@ -256,6 +269,7 @@ fun MainApp(viewModel: BookmarksViewModel, settingsManager: SettingsManager) {
     }
     is Screen.Search -> {
       SearchScreen(
+        settingsManager = settingsManager,
         onBack = {
           if (navigationStack.size > 1) {
             navigationStack = navigationStack.dropLast(1)
@@ -861,9 +875,7 @@ fun BaniCard(
   }
 }
 
-val santLipiFontFamily = FontFamily(
-  Font(com.example.R.font.noto_serif_gurmukhi, FontWeight.Normal)
-)
+val santLipiFontFamily = FontFamily.Serif
 
 @Composable
 fun buildGurmukhiLine(line: String, vishramColorHex: String): androidx.compose.ui.text.AnnotatedString {
@@ -935,12 +947,62 @@ fun BaniDetailScreen(
   val lineSpacingMultiplier = settingsState.lineSpacing
   val lineHeight = fontSize * lineSpacingMultiplier
 
-  val bani = remember(baniName) {
-    val fileName = getBaniFileName(baniName)
-    if (fileName.isNotEmpty()) {
-      loadBaniFromAsset(context, fileName)
+  var sggsVerses by remember { mutableStateOf<List<Verse>>(emptyList()) }
+  var dynamicBaniTitle by remember { mutableStateOf(baniName) }
+
+  val bani = remember(baniName, dynamicBaniTitle, sggsVerses) {
+    if (sggsVerses.isNotEmpty()) {
+      val parsedAng = baniName.filter { it.isDigit() }.ifEmpty { "1" }
+      Bani("sggs_shabad_$parsedAng", dynamicBaniTitle, sggsVerses)
     } else {
-      Bani("", baniName, emptyList())
+      val fileName = getBaniFileName(baniName)
+      if (fileName.isNotEmpty()) {
+        loadBaniFromAsset(context, fileName)
+      } else {
+        Bani("", baniName, emptyList())
+      }
+    }
+  }
+
+  LaunchedEffect(baniName) {
+    if (sggsVerses.isEmpty()) {
+      try {
+        val dao = SggsDatabase.getDatabase(context).sggsDao()
+        if (baniName.startsWith("sggs_shabad_")) {
+          val shabadId = baniName.removePrefix("sggs_shabad_")
+          val lineEntities = dao.getShabadByShabadId(shabadId)
+          if (lineEntities.isNotEmpty()) {
+            val firstLine = lineEntities.first()
+            val raagSuffix = if (firstLine.raag.isNotEmpty()) " • ${firstLine.raag}" else ""
+            dynamicBaniTitle = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${firstLine.source_page})$raagSuffix"
+            sggsVerses = lineEntities.mapIndexed { idx, lineEntity ->
+              Verse(
+                id = lineEntity.id.toIntOrNull() ?: lineEntity.id.hashCode(),
+                index = idx,
+                line = lineEntity.gurmukhi,
+                translation = lineEntity.translation
+              )
+            }
+          }
+        } else if (baniName.startsWith("sggs_ang_") || baniName.contains("ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ") || baniName.contains("ਅੰਗ")) {
+          val parsedAng = baniName.filter { it.isDigit() }.toIntOrNull() ?: 1
+          dynamicBaniTitle = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ $parsedAng)"
+          dao.getLinesByAng(parsedAng).collect { entities ->
+            if (entities.isNotEmpty()) {
+              sggsVerses = entities.mapIndexed { idx, e ->
+                Verse(
+                  id = e.id.toIntOrNull() ?: e.id.hashCode(),
+                  index = idx,
+                  line = e.gurmukhi,
+                  translation = e.translation
+                )
+              }
+            }
+          }
+        }
+      } catch (e: Exception) {
+        e.printStackTrace()
+      }
     }
   }
 
@@ -993,7 +1055,7 @@ fun BaniDetailScreen(
         .padding(horizontal = 20.dp)
     ) {
       TopAppBar(
-        title = baniName,
+        title = if (dynamicBaniTitle.isNotEmpty()) dynamicBaniTitle else baniName,
         onBack = onBack,
         modifier = Modifier.padding(top = 8.dp)
       )
@@ -1112,7 +1174,7 @@ fun BaniDetailScreen(
                       .testTag("verse_line_$index")
                   )
 
-                  if (verse.translation.isNotEmpty()) {
+                  if (verse.translation.isNotEmpty() && settingsState.showTranslation) {
                     Spacer(modifier = Modifier.height(8.dp))
                     // English Translation line
                     Text(
@@ -1141,7 +1203,7 @@ fun BaniDetailScreen(
                   IconButton(
                     onClick = {
                       val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                      val textToCopy = if (verse.translation.isNotEmpty()) "${verse.line}\n${verse.translation}" else verse.line
+                      val textToCopy = if (verse.translation.isNotEmpty() && settingsState.showTranslation) "${verse.line}\n${verse.translation}" else verse.line
                       val clip = android.content.ClipData.newPlainText("Gurbani Verse", textToCopy)
                       clipboard.setPrimaryClip(clip)
                       Toast.makeText(context, "ਤੁਕ ਕੋਪੀ ਹੋ ਗਈ॥", Toast.LENGTH_SHORT).show()
@@ -1156,7 +1218,7 @@ fun BaniDetailScreen(
                   // Share Verse Button
                   IconButton(
                     onClick = {
-                      val shareText = if (verse.translation.isNotEmpty()) {
+                      val shareText = if (verse.translation.isNotEmpty() && settingsState.showTranslation) {
                         "${verse.line}\n${verse.translation}\n\n— ਗੁਰਬਾਣੀ ਖੋਜ ($baniName)"
                       } else {
                         "${verse.line}\n\n— ਗੁਰਬਾਣੀ ਖੋਜ ($baniName)"
@@ -1224,52 +1286,586 @@ fun BaniDetailScreen(
   }
 }
 
+fun getVerseAng(fileName: String, verseIndex: Int, totalVerses: Int): Int {
+  if (totalVerses <= 0) return 1
+  return when (fileName) {
+    "japji_sahib.json" -> 1 + minOf(7, (verseIndex * 8) / totalVerses)
+    "kirtan_sohila.json" -> 12 + minOf(1, (verseIndex * 2) / totalVerses)
+    "sri_sukhmani_sahib.json" -> 262 + minOf(34, (verseIndex * 35) / totalVerses)
+    "asa_di_vaar.json" -> 462 + minOf(13, (verseIndex * 14) / totalVerses)
+    "anand_sahib.json" -> 917 + minOf(5, (verseIndex * 6) / totalVerses)
+    "aarti.json" -> {
+      when {
+        verseIndex < 45 -> 13
+        verseIndex < 90 -> 663
+        verseIndex < 135 -> 694
+        verseIndex < 180 -> 794
+        verseIndex < 220 -> 1163
+        else -> 1353
+      }
+    }
+    else -> 1
+  }
+}
+
+fun normalizeGurmukhiChar(ch: Char): Char {
+  return when (ch) {
+    'ਆ', 'ਇ', 'ਈ', 'ਏ', 'ਐ', 'ਉ', 'ਊ', 'ਓ', 'ਔ', 'ੳ', 'ੲ' -> 'ਅ'
+    else -> ch
+  }
+}
+
+fun convertGurmukhiToGurbaniAkharAscii(input: String): String {
+  val map = mapOf(
+    'ੴ' to "<>",
+    'ੳ' to "a", 'ਅ' to "A", 'ੲ' to "e",
+    'ਸ' to "s", 'ਹ' to "h",
+    'ਕ' to "k", 'ਖ' to "K", 'ਗ' to "g", 'ਘ' to "G", 'ਙ' to "q",
+    'ਚ' to "c", 'ਛ' to "C", 'ਜ' to "j", 'ਝ' to "J", 'ਞ' to "Q",
+    'ਟ' to "t", 'ਠ' to "T", 'ਡ' to "d", 'ਢ' to "D", 'ਣ' to "x",
+    'ਤ' to "q", 'ਥ' to "Q", 'ਦ' to "d", 'ਧ' to "D", 'ਨ' to "n",
+    'ਪ' to "p", 'ਫ' to "P", 'ਬ' to "b", 'ਭ' to "B", 'ਮ' to "m",
+    'ਯ' to "y", 'ਰ' to "r", 'ਲ' to "l", 'ਵ' to "v", 'ੜ' to "R",
+    'ਸ਼' to "S", 'ਖ਼' to "X", 'ਗ਼' to "z", 'ਜ਼' to "z", 'ਫ਼' to "f", 'ਲ਼' to "L",
+    'ਆ' to "A", 'ਇ' to "e", 'ਈ' to "e", 'ਉ' to "a", 'ਊ' to "a", 'ਏ' to "e", 'ਐ' to "A", 'ਓ' to "a", 'ਔ' to "a",
+    'ਾ' to "w", 'ਿ' to "i", 'ੀ' to "I", 'ੁ' to "u", 'ੂ' to "U", 'ੇ' to "y", 'ੈ' to "Y", 'ੋ' to "o", 'ਔ' to "O",
+    'ੰ' to "M", 'ਂ' to "M", 'ੱ' to "`", 'ੵ' to "Y"
+  )
+  val sb = StringBuilder()
+  for (ch in input) {
+    sb.append(map[ch] ?: ch)
+  }
+  return sb.toString()
+}
+
+fun convertGurbaniAkharToUnicode(text: String): String {
+  if (text.isEmpty()) return text
+  if (!text.any { it in 'A'..'Z' || it in 'a'..'z' || it in "<>`^[]" }) return text
+
+  val mapping = mapOf(
+    "<>" to "ੴ",
+    "A`" to "ਅੰ", "Aw" to "ਆ", "ie" to "ਇ", "eI" to "ਈ", "au" to "ਉ", "aU" to "ਊ", "ey" to "ਏ", "AY" to "ਐ", "AO" to "ਔ",
+    "a" to "ੳ", "A" to "ਅ", "e" to "ੲ", "s" to "ਸ", "h" to "ਹ",
+    "k" to "ਕ", "K" to "ਖ", "g" to "ਗ", "G" to "ਘ", "q" to "ਤ",
+    "c" to "ਚ", "C" to "ਛ", "j" to "ਜ", "J" to "ਝ", "Q" to "ਥ",
+    "t" to "ਟ", "T" to "ਠ", "d" to "ਦ", "D" to "ਧ", "x" to "ਣ", "n" to "ਨ",
+    "p" to "ਪ", "P" to "ਫ", "b" to "ਬ", "B" to "ਭ", "m" to "ਮ",
+    "y" to "ਯ", "r" to "ਰ", "l" to "ਲ", "v" to "ਵ", "R" to "ੜ",
+    "S" to "ਸ਼", "X" to "ਖ਼", "z" to "ਜ਼", "f" to "ਫ਼", "L" to "ਲ਼",
+    "w" to "ਾ", "I" to "ੀ", "u" to "ੁ", "U" to "ੂ", "y" to "ੇ", "Y" to "ੈ", "o" to "ੋ", "O" to "ੌ",
+    "M" to "ੰ", "N" to "ੰ", "`" to "ੱ", "^" to "ੵ", "[" to "।", "]" to "॥"
+  )
+
+  val words = text.split(" ")
+  val resWords = mutableListOf<String>()
+  for (w in words) {
+    if (w.isEmpty()) {
+      resWords.add("")
+      continue
+    }
+    val convertedChars = StringBuilder()
+    var i = 0
+    while (i < w.length) {
+      if (i + 1 < w.length && mapping.containsKey(w.substring(i, i + 2))) {
+        convertedChars.append(mapping[w.substring(i, i + 2)])
+        i += 2
+      } else if (w[i] == 'i') {
+        i++
+        if (i < w.length) {
+          val nextSub = if (i + 1 < w.length && mapping.containsKey(w.substring(i, i + 2))) w.substring(i, i + 2) else w[i].toString()
+          val convertedNext = mapping[nextSub] ?: nextSub
+          convertedChars.append(convertedNext)
+          convertedChars.append('ਿ')
+          i += nextSub.length
+        } else {
+          convertedChars.append('ਿ')
+        }
+      } else if (mapping.containsKey(w[i].toString())) {
+        convertedChars.append(mapping[w[i].toString()])
+        i++
+      } else {
+        convertedChars.append(w[i])
+        i++
+      }
+    }
+    resWords.add(convertedChars.toString())
+  }
+  return resWords.joinToString(" ")
+}
+
+fun gurmukhiCharToRoman(ch: Char): Char {
+  return when (ch) {
+    'ੴ' -> 'i'
+    'ੳ', 'ਅ', 'ੲ', 'ਆ', 'ਇ', 'ਈ', 'ਉ', 'ਊ', 'ਏ', 'ਐ', 'ਓ', 'ਔ' -> 'a'
+    'ਕ', 'ਖ', 'ਖ਼', 'ਘ' -> 'k'
+    'ਗ', 'ਗ਼' -> 'g'
+    'ਚ', 'ਛ' -> 'c'
+    'ਜ', 'ਝ', 'ਜ਼' -> 'j'
+    'ਟ', 'ਠ' -> 't'
+    'ਡ', 'ਢ' -> 'd'
+    'ਤ', 'ਥ' -> 't'
+    'ਦ', 'ਧ' -> 'd'
+    'ਨ', 'ਣ' -> 'n'
+    'ਪ', 'ਫ', 'ਫ਼' -> 'p'
+    'ਬ', 'ਭ' -> 'b'
+    'ਮ' -> 'm'
+    'ਯ' -> 'y'
+    'ਰ', 'ੜ' -> 'r'
+    'ਲ', 'ਲ਼' -> 'l'
+    'ਵ' -> 'v'
+    'ਸ਼', 'ਸ' -> 's'
+    'ਹ' -> 'h'
+    else -> ch.lowercaseChar()
+  }
+}
+
+data class WordToken(
+  val word: String,
+  val startIdx: Int,
+  val endIdx: Int,
+  val exactFirst: Char,
+  val normFirst: Char,
+  val romanFirst: Char
+)
+
+fun parseGurmukhiLineWords(line: String): List<WordToken> {
+  val tokens = mutableListOf<WordToken>()
+  var i = 0
+  val len = line.length
+  while (i < len) {
+    while (i < len && (line[i].isWhitespace() || line[i] in "॥|,.?()0123456789੦੧੨੩੪੫੬੭੮੯-\"':;")) {
+      i++
+    }
+    if (i >= len) break
+    val start = i
+    while (i < len && !(line[i].isWhitespace() || line[i] in "॥|,.?()0123456789੦੧੨੩੪੫੬੭੮੯-\"':;")) {
+      i++
+    }
+    val word = line.substring(start, i)
+    if (word.isNotEmpty()) {
+      val firstChar = word[0]
+      tokens.add(
+        WordToken(
+          word = word,
+          startIdx = start,
+          endIdx = i,
+          exactFirst = firstChar,
+          normFirst = normalizeGurmukhiChar(firstChar),
+          romanFirst = gurmukhiCharToRoman(firstChar)
+        )
+      )
+    }
+  }
+  return tokens
+}
+
+enum class SearchSourceTab {
+  NITNEM,
+  SGGS
+}
+
+@Composable
+fun GurmukhiKeyboard(
+  onKeyClick: (String) -> Unit,
+  onBackspaceClick: () -> Unit,
+  onClearClick: () -> Unit,
+  onSearchClick: () -> Unit = {},
+  onHideClick: () -> Unit,
+  modifier: Modifier = Modifier
+) {
+  var keyboardTab by remember { mutableStateOf(0) } // 0: Consonants & Vowels, 1: Matras, 2: Digits & Roman
+  var lastClickTime by remember { mutableStateOf(0L) }
+  val debounceMs = 150L
+
+  val handleKeyClick: (String) -> Unit = { key ->
+    val now = System.currentTimeMillis()
+    if (now - lastClickTime >= debounceMs) {
+      lastClickTime = now
+      onKeyClick(key)
+    }
+  }
+
+  val handleBackspaceClick: () -> Unit = {
+    val now = System.currentTimeMillis()
+    if (now - lastClickTime >= debounceMs) {
+      lastClickTime = now
+      onBackspaceClick()
+    }
+  }
+
+  val handleClearClick: () -> Unit = {
+    val now = System.currentTimeMillis()
+    if (now - lastClickTime >= debounceMs) {
+      lastClickTime = now
+      onClearClick()
+    }
+  }
+
+  val handleSearchClick: () -> Unit = {
+    val now = System.currentTimeMillis()
+    if (now - lastClickTime >= debounceMs) {
+      lastClickTime = now
+      onSearchClick()
+    }
+  }
+
+  val handleHideClick: () -> Unit = {
+    val now = System.currentTimeMillis()
+    if (now - lastClickTime >= debounceMs) {
+      lastClickTime = now
+      onHideClick()
+    }
+  }
+
+  val consonantsAndVowels = listOf(
+    listOf("ੴ", "ੳ", "ਅ", "ੲ", "ਸ", "ਹ"),
+    listOf("ਕ", "ਖ", "ਗ", "ਘ", "ਙ"),
+    listOf("ਚ", "ਛ", "ਜ", "ਝ", "ਞ"),
+    listOf("ਟ", "ਠ", "ਡ", "ਢ", "ਣ"),
+    listOf("ਤ", "ਥ", "ਦ", "ਧ", "ਨ"),
+    listOf("ਪ", "ਫ", "ਬ", "ਭ", "ਮ"),
+    listOf("ਯ", "ਰ", "ਲ", "ਵ", "ੜ"),
+    listOf("ਸ਼", "ਖ਼", "ਗ਼", "ਜ਼", "ਫ਼", "ਲ਼")
+  )
+
+  val matrasAndAux = listOf(
+    listOf("ਆ", "ਇ", "ਈ", "ਉ", "ਊ", "ਏ", "ਐ", "ਓ", "ਔ"),
+    listOf("ਾ", "ਿ", "ੀ", "ੁ", "ੂ", "ੇ", "ੈ", "ੋ", "ੌ"),
+    listOf("ੰ", "ਂ", "ੱ", "੍", "ੵ", "ੴ")
+  )
+
+  val digitsAndRoman = listOf(
+    listOf("੦", "੧", "੨", "੩", "੪", "੫", "੬", "੭", "੮", "੯"),
+    listOf("0", "1", "2", "3", "4", "5", "6", "7", "8", "9"),
+    listOf("s", "a", "m", "k", "b", "i", "o", "g", "r", "p")
+  )
+
+  Card(
+    modifier = modifier
+      .fillMaxWidth()
+      .testTag("gurmukhi_keyboard_card"),
+    colors = CardDefaults.cardColors(containerColor = Slate50),
+    border = BorderStroke(1.dp, Slate200),
+    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+  ) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(8.dp)
+    ) {
+      // Category Tab Header
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+      ) {
+        val tabs = listOf("🔤 ਅੱਖਰ (35+)", "🎨 ਮਾਤਰਾਵਾਂ", "🔢 ਅੰਕ / saskba")
+        tabs.forEachIndexed { index, label ->
+          val isSelected = keyboardTab == index
+          Box(
+            modifier = Modifier
+              .weight(1f)
+              .clip(RoundedCornerShape(8.dp))
+              .background(if (isSelected) SaffronPrimary else Color.White)
+              .border(1.dp, if (isSelected) SaffronPrimary else Slate200, RoundedCornerShape(8.dp))
+              .clickable { keyboardTab = index }
+              .padding(vertical = 6.dp),
+            contentAlignment = Alignment.Center
+          ) {
+            Text(
+              text = label,
+              fontSize = 11.sp,
+              fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+              color = if (isSelected) Color.White else TextMedium
+            )
+          }
+        }
+      }
+
+      // Keyboard Key Grid
+      val currentKeyRows = when (keyboardTab) {
+        1 -> matrasAndAux
+        2 -> digitsAndRoman
+        else -> consonantsAndVowels
+      }
+
+      Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+      ) {
+        currentKeyRows.forEach { rowKeys ->
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+          ) {
+            rowKeys.forEach { keyStr ->
+              Box(
+                modifier = Modifier
+                  .weight(1f)
+                  .height(38.dp)
+                  .clip(RoundedCornerShape(8.dp))
+                  .background(Color.White)
+                  .border(1.dp, Slate200, RoundedCornerShape(8.dp))
+                  .clickable { handleKeyClick(keyStr) },
+                contentAlignment = Alignment.Center
+              ) {
+                Text(
+                  text = keyStr,
+                  fontSize = 15.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = TextDark,
+                  textAlign = TextAlign.Center
+                )
+              }
+            }
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(6.dp))
+
+      // Bottom Control Row
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+      ) {
+        // Space key
+        Box(
+          modifier = Modifier
+            .weight(2f)
+            .height(38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(SaffronLight)
+            .border(1.dp, SaffronPrimary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .clickable { handleKeyClick(" ") },
+          contentAlignment = Alignment.Center
+        ) {
+          Text(
+            text = "␣ ਖਾਲੀ ਥਾਂ (Space)",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = SaffronDark
+          )
+        }
+
+        // Backspace key
+        Box(
+          modifier = Modifier
+            .weight(1f)
+            .height(38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.White)
+            .border(1.dp, Slate200, RoundedCornerShape(8.dp))
+            .clickable { handleBackspaceClick() },
+          contentAlignment = Alignment.Center
+        ) {
+          Text(
+            text = "⌫",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.Red
+          )
+        }
+
+        // Clear key
+        Box(
+          modifier = Modifier
+            .weight(1f)
+            .height(38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.White)
+            .border(1.dp, Slate200, RoundedCornerShape(8.dp))
+            .clickable { handleClearClick() },
+          contentAlignment = Alignment.Center
+        ) {
+          Text(
+            text = "ਸਾਫ਼",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextMedium
+          )
+        }
+
+        // Search key
+        Box(
+          modifier = Modifier
+            .weight(1f)
+            .height(38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(SaffronPrimary)
+            .clickable { handleSearchClick() },
+          contentAlignment = Alignment.Center
+        ) {
+          Text(
+            text = "🔍 ਖੋਜ",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+          )
+        }
+
+        // Hide keyboard
+        Box(
+          modifier = Modifier
+            .weight(1f)
+            .height(38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Slate200)
+            .clickable { handleHideClick() },
+          contentAlignment = Alignment.Center
+        ) {
+          Text(
+            text = "⌨️ ਓਹਲੇ",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextDark
+          )
+        }
+      }
+    }
+  }
+}
+
 @Composable
 fun SearchScreen(
+  settingsManager: SettingsManager? = null,
   onBack: () -> Unit,
   onNavigateToBani: (String, Int) -> Unit
 ) {
   val context = LocalContext.current
-  var allBanis by remember { mutableStateOf<List<Bani>>(emptyList()) }
-  var searchQuery by remember { mutableStateOf("") }
-  var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+  val settingsState = settingsManager?.settings?.collectAsStateWithLifecycle()?.value
 
-  val baniFiles = listOf(
-    "japji_sahib.json",
-    "jaap_sahib.json",
-    "tav_prasad_savaiye.json",
-    "chaupai_sahib.json",
-    "anand_sahib.json",
-    "rehras_sahib.json",
-    "ardas.json",
-    "kirtan_sohila.json",
-    "aarti.json",
-    "asa_di_vaar.json",
-    "sri_sukhmani_sahib.json"
-  )
+  var allSggsBanis by remember { mutableStateOf<List<Bani>>(emptyList()) }
+  var allNitnemBanis by remember { mutableStateOf<List<Bani>>(emptyList()) }
+
+  var activeSourceTab by remember { mutableStateOf(SearchSourceTab.SGGS) }
+  var searchQuery by remember { mutableStateOf("") }
+  var activeFilterTab by remember { mutableStateOf(SearchFilterType.ALL) }
+  var fontOverride by remember { mutableStateOf<String?>(null) }
+  var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+  var showKeyboard by remember { mutableStateOf(true) }
+
+  val activeFontName = fontOverride ?: settingsState?.fontFamily ?: "Unicode Gurmukhi"
+  val activeFontFamily = when (activeFontName) {
+    "Sant Lipi" -> santLipiFontFamily
+    "Unicode Gurmukhi" -> FontFamily.SansSerif
+    "Noto Serif Gurmukhi" -> FontFamily.Serif
+    else -> FontFamily.Default
+  }
+
+  // SRI GURU GRANTH SAHIB JI BANIS (1430 Ang)
+  val sggsBaniFiles = remember {
+    listOf(
+      "japji_sahib.json",
+      "kirtan_sohila.json",
+      "sri_sukhmani_sahib.json",
+      "asa_di_vaar.json",
+      "anand_sahib.json",
+      "aarti.json"
+    )
+  }
+
+  // NITNEM BANIS
+  val nitnemBaniFiles = remember {
+    listOf(
+      "japji_sahib.json",
+      "jaap_sahib.json",
+      "tav_prasad_savaiye.json",
+      "chaupai_sahib.json",
+      "anand_sahib.json",
+      "rehras_sahib.json",
+      "kirtan_sohila.json",
+      "ardas.json",
+      "aarti.json",
+      "asa_di_vaar.json",
+      "sri_sukhmani_sahib.json"
+    )
+  }
 
   LaunchedEffect(Unit) {
-    allBanis = baniFiles.map { fileName ->
+    allSggsBanis = sggsBaniFiles.map { fileName ->
+      loadBaniFromAsset(context, fileName)
+    }
+    allNitnemBanis = nitnemBaniFiles.map { fileName ->
       loadBaniFromAsset(context, fileName)
     }
   }
 
-  LaunchedEffect(searchQuery) {
-    if (searchQuery.isBlank()) {
+  // Active dataset depending strictly on source tab
+  val activeBanis = if (activeSourceTab == SearchSourceTab.SGGS) allSggsBanis else allNitnemBanis
+
+  // Instant real-time offline search (1430 Angs Sri Guru Granth Sahib Ji)
+  LaunchedEffect(searchQuery, activeFilterTab) {
+    val q = searchQuery.trim()
+    if (q.isBlank()) {
       searchResults = emptyList()
-    } else {
-      val query = searchQuery.trim()
-      val results = mutableListOf<SearchResult>()
-      allBanis.forEach { bani ->
-        bani.verses.forEach { verse ->
-          if (verse.line.contains(query, ignoreCase = true) || 
-              verse.translation.contains(query, ignoreCase = true)) {
-            results.add(SearchResult(baniName = bani.title, fileName = bani.fileName, verse = verse))
-          }
+      return@LaunchedEffect
+    }
+
+    val results = mutableListOf<SearchResult>()
+    val cleanQ = q.replace(" ", "").replace("॥", "").replace("|", "")
+    val cleanLowerQ = cleanQ.lowercase()
+    val cleanNormQ = cleanQ.map { normalizeGurmukhiChar(it) }.joinToString("")
+    val isRomanQuery = cleanLowerQ.any { it in 'a'..'z' }
+    val parsedAng = q.replace("ਅੰਗ", "").replace("ang", "", ignoreCase = true).trim().toIntOrNull()
+
+    try {
+      val dao = SggsDatabase.getDatabase(context).sggsDao()
+      val dbLines = mutableListOf<LineEntity>()
+
+      if (parsedAng != null && (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.ANG)) {
+        dbLines.addAll(dao.searchByAng(parsedAng))
+      }
+
+      if (cleanQ.isNotEmpty()) {
+        val asciiQ = convertGurmukhiToGurbaniAkharAscii(cleanQ)
+        val fullTextAsciiQ = convertGurmukhiToGurbaniAkharAscii(q.trim())
+        android.util.Log.d("GurbaniSearch", "Executing search: raw='$cleanQ', ascii='$asciiQ' on table 'lines', column 'first_letters'")
+        if (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.FIRST_LETTER) {
+          dbLines.addAll(dao.searchByFirstLetters(cleanQ, asciiQ))
+        }
+        if (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.FULL_TEXT) {
+          dbLines.addAll(dao.searchByFullText(q.trim(), fullTextAsciiQ))
         }
       }
-      searchResults = results
+
+      val uniqueLines = dbLines.distinctBy { it.id }
+      val asciiQ = convertGurmukhiToGurbaniAkharAscii(cleanQ)
+      uniqueLines.forEach { lineEntity ->
+        val verse = Verse(
+          id = lineEntity.id.toIntOrNull() ?: lineEntity.id.hashCode(),
+          index = lineEntity.source_line,
+          line = convertGurbaniAkharToUnicode(lineEntity.gurmukhi),
+          translation = lineEntity.translation
+        )
+
+        val raagSuffix = if (lineEntity.raag.isNotEmpty()) " • ${lineEntity.raag}" else ""
+        val titleText = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${lineEntity.source_page})$raagSuffix"
+
+        val filterType = when {
+          parsedAng != null && lineEntity.source_page == parsedAng -> SearchFilterType.ANG
+          cleanQ.isNotEmpty() && (lineEntity.first_letters.startsWith(cleanQ, ignoreCase = true) || lineEntity.first_letters.startsWith(asciiQ, ignoreCase = true)) -> SearchFilterType.FIRST_LETTER
+          else -> SearchFilterType.FULL_TEXT
+        }
+
+        results.add(
+          SearchResult(
+            baniName = titleText,
+            fileName = "sggs_shabad_${lineEntity.shabad_id}",
+            verse = verse,
+            searchMethod = filterType,
+            highlightRange = null,
+            matchedQuery = q,
+            ang = lineEntity.source_page
+          )
+        )
+      }
+    } catch (e: Exception) {
+      e.printStackTrace()
     }
+
+    searchResults = results
   }
 
   Scaffold(
@@ -1282,162 +1878,393 @@ fun SearchScreen(
       modifier = Modifier
         .fillMaxSize()
         .padding(innerPadding)
-        .padding(horizontal = 20.dp)
+        .padding(horizontal = 16.dp)
     ) {
       TopAppBar(
-        title = "🔍 ਗੁਰਬਾਣੀ ਖੋਜ",
+        title = "🔍 ਗੁਰਬਾਣੀ ਖੋਜ (Gurbani Search)",
         onBack = onBack,
-        modifier = Modifier.padding(top = 8.dp)
+        modifier = Modifier.padding(top = 4.dp)
       )
 
-      // OutlinedTextField for searching
-      OutlinedTextField(
-        value = searchQuery,
-        onValueChange = { searchQuery = it },
-        placeholder = {
-          Text(
-            text = "ਇੱਥੇ ਅੱਖਰ ਜਾਂ ਸ਼ਬਦ ਲਿਖੋ...",
-            color = TextGray,
-            fontSize = 15.sp
-          )
-        },
-        singleLine = true,
-        colors = TextFieldDefaults.colors(
-          focusedContainerColor = Slate50,
-          unfocusedContainerColor = Slate50,
-          focusedTextColor = TextMedium,
-          unfocusedTextColor = TextMedium,
-          focusedIndicatorColor = SaffronPrimary,
-          unfocusedIndicatorColor = Slate200,
-          cursorColor = SaffronPrimary
-        ),
-        shape = RoundedCornerShape(16.dp),
+      // Header Badge: Complete Sri Guru Granth Sahib Ji (1430 Ang)
+      Box(
         modifier = Modifier
           .fillMaxWidth()
-          .padding(vertical = 12.dp)
-          .testTag("search_input_field")
-      )
-
-      if (searchQuery.isBlank()) {
-        Column(
-          modifier = Modifier
-            .fillMaxSize()
-            .weight(1f),
-          verticalArrangement = Arrangement.Center,
-          horizontalAlignment = Alignment.CenterHorizontally
+          .padding(vertical = 4.dp)
+          .background(SaffronLight, RoundedCornerShape(12.dp))
+          .border(1.dp, SaffronPrimary.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+          .padding(horizontal = 12.dp, vertical = 8.dp)
+      ) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
         ) {
           Text(
-            text = "ੴ",
-            style = MaterialTheme.typography.displayMedium.copy(
-              fontSize = 36.sp,
-              color = SaffronPrimary.copy(alpha = 0.5f),
-              fontWeight = FontWeight.Bold
-            ),
-            modifier = Modifier.padding(bottom = 12.dp)
-          )
-          Text(
-            text = "ਗੁਰਮੁਖੀ ਅੱਖਰਾਂ ਵਿੱਚ ਟਾਈਪ ਕਰੋ\nਜਿਵੇਂ ਕਿ 'ਸਤਿਗੁਰ' ਜਾਂ 'ਅਨੰਦੁ'",
-            style = MaterialTheme.typography.bodyMedium.copy(
-              color = TextGray,
-              fontSize = 14.sp,
-              textAlign = TextAlign.Center,
-              lineHeight = 20.sp
-            ),
-            modifier = Modifier.testTag("search_empty_hint")
-          )
-        }
-      } else if (searchResults.isEmpty()) {
-        Column(
-          modifier = Modifier
-            .fillMaxSize()
-            .weight(1f),
-          verticalArrangement = Arrangement.Center,
-          horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-          Text(
-            text = "ਕੋਈ ਨਤੀਜਾ ਨਹੀਂ ਮਿਲਿਆ",
-            style = MaterialTheme.typography.titleMedium.copy(
+            text = "ੴ ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (1430 ਅੰਗ)",
+            style = MaterialTheme.typography.bodySmall.copy(
+              color = SaffronDark,
               fontWeight = FontWeight.Bold,
-              color = TextMedium,
-              fontSize = 16.sp
-            ),
-            modifier = Modifier.testTag("search_no_results_text")
-          )
-          Spacer(modifier = Modifier.height(4.dp))
-          Text(
-            text = "ਕਿਰਪਾ ਕਰਕੇ ਕੋਈ ਹੋਰ ਸ਼ਬਦ ਲਿਖੋ।",
-            style = MaterialTheme.typography.bodyMedium.copy(
-              color = TextGray,
               fontSize = 13.sp
             )
           )
+          Text(
+            text = "ਆਫਲਾਈਨ • 100% Offline",
+            style = MaterialTheme.typography.bodySmall.copy(
+              color = TextGray,
+              fontSize = 11.sp
+            )
+          )
         }
-      } else {
-        LazyColumn(
+      }
+
+      Spacer(modifier = Modifier.height(6.dp))
+
+      // Search Input Row with Keyboard Toggle and Search Button
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        OutlinedTextField(
+          value = searchQuery,
+          onValueChange = { searchQuery = it },
+          placeholder = {
+            Text(
+              text = "ਅੱਖਰ, ਸ਼ਬਦ (ਜਿਵੇਂ 'ਸਅਸਮ', 'saskba', 'ਸਤਿਗੁਰ')...",
+              color = TextGray,
+              fontSize = 13.sp
+            )
+          },
+          singleLine = true,
+          keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            imeAction = androidx.compose.ui.text.input.ImeAction.Search
+          ),
+          keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+            onSearch = { showKeyboard = false }
+          ),
+          colors = TextFieldDefaults.colors(
+            focusedContainerColor = Slate50,
+            unfocusedContainerColor = Slate50,
+            focusedTextColor = TextMedium,
+            unfocusedTextColor = TextMedium,
+            focusedIndicatorColor = SaffronPrimary,
+            unfocusedIndicatorColor = Slate200,
+            cursorColor = SaffronPrimary
+          ),
+          shape = RoundedCornerShape(14.dp),
           modifier = Modifier
-            .fillMaxSize()
             .weight(1f)
-            .testTag("search_results_list"),
-          verticalArrangement = Arrangement.spacedBy(12.dp),
-          contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)
+            .testTag("search_input_field")
+        )
+
+        // Visible Search Button
+        Box(
+          modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(SaffronPrimary)
+            .clickable { showKeyboard = false }
+            .padding(horizontal = 14.dp, vertical = 14.dp)
+            .testTag("search_submit_button"),
+          contentAlignment = Alignment.Center
         ) {
-          itemsIndexed(searchResults) { index, result ->
-            Card(
-              onClick = { onNavigateToBani(result.baniName, result.verse.index) },
-              colors = CardDefaults.cardColors(
-                containerColor = Slate50
+          Text(
+            text = "🔍 ਖੋਜ",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+          )
+        }
+
+        // Toggle Gurmukhi Keyboard Button
+        Box(
+          modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (showKeyboard) SaffronPrimary else Slate100)
+            .border(1.dp, if (showKeyboard) SaffronPrimary else Slate200, RoundedCornerShape(14.dp))
+            .clickable { showKeyboard = !showKeyboard }
+            .padding(horizontal = 10.dp, vertical = 14.dp),
+          contentAlignment = Alignment.Center
+        ) {
+          Text(
+            text = if (showKeyboard) "⌨️" else "⌨️+ ",
+            fontSize = 16.sp,
+            color = if (showKeyboard) Color.White else TextMedium
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(6.dp))
+
+      // Interactive Method Filter Tabs
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+      ) {
+        val filterTabs = listOf(
+          SearchFilterType.ALL to "🔍 ਸਭ",
+          SearchFilterType.FIRST_LETTER to "🔤 ਪਹਿਲਾ ਅੱਖਰ",
+          SearchFilterType.FULL_TEXT to "📝 ਪੂਰਾ ਪਾਠ",
+          SearchFilterType.ANG to "📖 ਅੰਗ"
+        )
+
+        filterTabs.forEach { (type, label) ->
+          val isSelected = activeFilterTab == type
+          Box(
+            modifier = Modifier
+              .weight(1f)
+              .clip(RoundedCornerShape(10.dp))
+              .background(if (isSelected) SaffronPrimary else Slate100)
+              .clickable { activeFilterTab = type }
+              .padding(vertical = 6.dp),
+            contentAlignment = Alignment.Center
+          ) {
+            Text(
+              text = label,
+              fontSize = 11.sp,
+              fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+              color = if (isSelected) Color.White else TextMedium,
+              textAlign = TextAlign.Center
+            )
+          }
+        }
+      }
+
+      // Font Toggle Bar
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Text(
+          text = "ਫੋਂਟ: $activeFontName",
+          fontSize = 11.sp,
+          fontWeight = FontWeight.SemiBold,
+          color = TextMedium
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(8.dp))
+              .background(if (activeFontName == "Unicode Gurmukhi") SaffronLight else Slate100)
+              .border(
+                1.dp,
+                if (activeFontName == "Unicode Gurmukhi") SaffronPrimary else Color.Transparent,
+                RoundedCornerShape(8.dp)
+              )
+              .clickable { fontOverride = "Unicode Gurmukhi" }
+              .padding(horizontal = 8.dp, vertical = 3.dp)
+          ) {
+            Text(
+              text = "🔤 ਯੂਨੀਕੋਡ",
+              fontSize = 10.sp,
+              color = if (activeFontName == "Unicode Gurmukhi") SaffronDark else TextMedium,
+              fontWeight = FontWeight.Bold
+            )
+          }
+
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(8.dp))
+              .background(if (activeFontName == "Sant Lipi") SaffronLight else Slate100)
+              .border(
+                1.dp,
+                if (activeFontName == "Sant Lipi") SaffronPrimary else Color.Transparent,
+                RoundedCornerShape(8.dp)
+              )
+              .clickable { fontOverride = "Sant Lipi" }
+              .padding(horizontal = 8.dp, vertical = 3.dp)
+          ) {
+            Text(
+              text = "📜 ਸੰਤ ਲਿਪੀ",
+              fontSize = 10.sp,
+              color = if (activeFontName == "Sant Lipi") SaffronDark else TextMedium,
+              fontWeight = FontWeight.Bold
+            )
+          }
+        }
+      }
+
+      // Main Content Area: Search Results or Hints
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .weight(1f)
+      ) {
+        if (searchQuery.isBlank()) {
+          Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+          ) {
+            Text(
+              text = "ੴ",
+              style = MaterialTheme.typography.displayMedium.copy(
+                fontSize = 36.sp,
+                color = SaffronPrimary.copy(alpha = 0.6f),
+                fontWeight = FontWeight.Bold
               ),
-              border = BorderStroke(1.dp, Slate200),
-              shape = RoundedCornerShape(16.dp),
+              modifier = Modifier.padding(bottom = 8.dp)
+            )
+            Text(
+              text = if (activeSourceTab == SearchSourceTab.SGGS) "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ ਆਫਲਾਈਨ ਖੋਜ" else "ਨਿਤਨੇਮ ਬਾਣੀਆਂ ਆਫਲਾਈਨ ਖੋਜ",
+              style = MaterialTheme.typography.titleMedium.copy(
+                color = TextDark,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+              )
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+              text = "• 🔤 ਪਹਿਲਾ ਅੱਖਰ: 'ਸਅਸਮ' ਜਾਂ 'saskba'\n• 📝 ਪੂਰਾ ਪਾਠ: 'ਸਤਿਗੁਰ' ਜਾਂ 'ਅਰਦਾਸਿ'\n• 📖 ਅੰਗ ਨੰਬਰ: '262', '1', '917'",
+              style = MaterialTheme.typography.bodyMedium.copy(
+                color = TextGray,
+                fontSize = 12.sp,
+                lineHeight = 20.sp,
+                textAlign = TextAlign.Center
+              ),
+              modifier = Modifier.testTag("search_empty_hint")
+            )
+          }
+        } else if (searchResults.isEmpty()) {
+          Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+          ) {
+            Text(
+              text = "ਕੋਈ ਨਤੀਜਾ ਨਹੀਂ ਮਿਲਿਆ",
+              style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.Bold,
+                color = TextMedium,
+                fontSize = 15.sp,
+                textAlign = TextAlign.Center
+              ),
+              modifier = Modifier.testTag("search_no_results_text")
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+              text = "ਕਿਰਪਾ ਕਰਕੇ ਹੋਰ ਅੱਖਰ, ਸ਼ਬਦ ਜਾਂ ਅੰਗ ਨੰਬਰ ਲਿਖੋ।",
+              style = MaterialTheme.typography.bodyMedium.copy(
+                color = TextGray,
+                fontSize = 12.sp
+              )
+            )
+          }
+        } else {
+          Column(modifier = Modifier.fillMaxSize()) {
+            Text(
+              text = "${searchResults.size} ਨਤੀਜੇ ਮਿਲੇ (${if (activeSourceTab == SearchSourceTab.SGGS) "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ" else "ਨਿਤਨੇਮ"})",
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Bold,
+              color = SaffronDark,
+              modifier = Modifier.padding(bottom = 6.dp)
+            )
+
+            LazyColumn(
               modifier = Modifier
-                .fillMaxWidth()
-                .testTag("search_result_card_$index")
+                .fillMaxSize()
+                .testTag("search_results_list"),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+              contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp)
             ) {
-              Column(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(16.dp)
-              ) {
-                // Bani Name Pill
-                Box(
+              itemsIndexed(searchResults) { index, result ->
+                Card(
+                  onClick = { onNavigateToBani(result.baniName, result.verse.index) },
+                  colors = CardDefaults.cardColors(containerColor = Slate50),
+                  border = BorderStroke(1.dp, Slate200),
+                  shape = RoundedCornerShape(14.dp),
                   modifier = Modifier
-                    .background(SaffronLight, shape = RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .fillMaxWidth()
+                    .testTag("search_result_card_$index")
                 ) {
-                  Text(
-                    text = result.baniName,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                      color = SaffronDark,
+                  Column(
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .padding(12.dp)
+                  ) {
+                    Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.SpaceBetween,
+                      verticalAlignment = Alignment.CenterVertically
+                    ) {
+                      Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                      ) {
+                        Box(
+                          modifier = Modifier
+                            .background(SaffronLight, shape = RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                          Text(
+                            text = result.baniName,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                              color = SaffronDark,
+                              fontWeight = FontWeight.Bold,
+                              fontSize = 11.sp
+                            ),
+                            modifier = Modifier.testTag("search_result_bani_name_$index")
+                          )
+                        }
+
+                        Box(
+                          modifier = Modifier
+                            .background(Slate200, shape = RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                          Text(
+                            text = "📖 ਅੰਗ ${result.ang}",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                              color = TextMedium,
+                              fontWeight = FontWeight.Bold,
+                              fontSize = 11.sp
+                            )
+                          )
+                        }
+                      }
+
+                      val methodLabel = when (result.searchMethod) {
+                        SearchFilterType.FIRST_LETTER -> "🔤 ਪਹਿਲਾ ਅੱਖਰ"
+                        SearchFilterType.ANG -> "📖 ਅੰਗ"
+                        else -> "📝 ਪੂਰਾ ਪਾਠ"
+                      }
+                      Text(
+                        text = methodLabel,
+                        fontSize = 10.sp,
+                        color = TextGray,
+                        fontWeight = FontWeight.SemiBold
+                      )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    HighlightedText(
+                      text = result.verse.line,
+                      query = result.matchedQuery,
+                      highlightRange = result.highlightRange,
+                      highlightColor = SaffronPrimary,
+                      textColor = TextMedium,
+                      fontSize = 17.sp,
                       fontWeight = FontWeight.Bold,
-                      fontSize = 11.sp
-                    ),
-                    modifier = Modifier.testTag("search_result_bani_name_$index")
-                  )
-                }
+                      fontFamily = activeFontFamily
+                    )
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Highlighted Gurmukhi Verse
-                HighlightedText(
-                  text = result.verse.line,
-                  query = searchQuery,
-                  highlightColor = SaffronPrimary,
-                  textColor = TextMedium,
-                  fontSize = 16.sp,
-                  fontWeight = FontWeight.Bold
-                )
-
-                if (result.verse.translation.isNotEmpty()) {
-                  Spacer(modifier = Modifier.height(6.dp))
-                  // Highlighted Translation
-                  HighlightedText(
-                    text = result.verse.translation,
-                    query = searchQuery,
-                    highlightColor = SaffronPrimary.copy(alpha = 0.8f),
-                    textColor = TextGray,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Normal
-                  )
+                    if (result.verse.translation.isNotEmpty() && settingsState?.showTranslation != false) {
+                      Spacer(modifier = Modifier.height(6.dp))
+                      HighlightedText(
+                        text = result.verse.translation,
+                        query = result.matchedQuery,
+                        highlightColor = SaffronPrimary.copy(alpha = 0.8f),
+                        textColor = TextGray,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal
+                      )
+                    }
+                  }
                 }
               }
             }
@@ -1445,21 +2272,19 @@ fun SearchScreen(
         }
       }
 
-      // Bottom gesture line
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
-      ) {
-        Box(
-          modifier = Modifier
-            .width(128.dp)
-            .height(6.dp)
-            .background(
-              color = Slate200,
-              shape = RoundedCornerShape(3.dp)
-            )
+      // BUILT-IN CUSTOM GURMUKHI KEYBOARD AT THE BOTTOM
+      if (showKeyboard) {
+        GurmukhiKeyboard(
+          onKeyClick = { key -> searchQuery += key },
+          onBackspaceClick = {
+            if (searchQuery.isNotEmpty()) {
+              searchQuery = searchQuery.dropLast(1)
+            }
+          },
+          onClearClick = { searchQuery = "" },
+          onSearchClick = { showKeyboard = false },
+          onHideClick = { showKeyboard = false },
+          modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
         )
       }
     }
@@ -1469,17 +2294,28 @@ fun SearchScreen(
 @Composable
 fun HighlightedText(
   text: String,
-  query: String,
+  query: String = "",
+  highlightRange: IntRange? = null,
   highlightColor: Color = SaffronPrimary,
   textColor: Color = TextDark,
   fontSize: androidx.compose.ui.unit.TextUnit = 16.sp,
-  fontWeight: FontWeight = FontWeight.Normal
+  fontWeight: FontWeight = FontWeight.Normal,
+  fontFamily: FontFamily = FontFamily.Default,
+  modifier: Modifier = Modifier
 ) {
-  val annotatedString = remember(text, query) {
+  val annotatedString = remember(text, query, highlightRange) {
     buildAnnotatedString {
-      if (query.isEmpty() || !text.contains(query, ignoreCase = true)) {
-        append(text)
-      } else {
+      if (highlightRange != null && highlightRange.first >= 0 && highlightRange.last < text.length) {
+        if (highlightRange.first > 0) {
+          append(text.substring(0, highlightRange.first))
+        }
+        withStyle(style = SpanStyle(color = highlightColor, fontWeight = FontWeight.Bold)) {
+          append(text.substring(highlightRange.first, highlightRange.last + 1))
+        }
+        if (highlightRange.last + 1 < text.length) {
+          append(text.substring(highlightRange.last + 1))
+        }
+      } else if (query.isNotEmpty() && text.contains(query, ignoreCase = true)) {
         var startIndex = 0
         while (true) {
           val index = text.indexOf(query, startIndex, ignoreCase = true)
@@ -1493,6 +2329,8 @@ fun HighlightedText(
           }
           startIndex = index + query.length
         }
+      } else {
+        append(text)
       }
     }
   }
@@ -1501,7 +2339,9 @@ fun HighlightedText(
     text = annotatedString,
     fontSize = fontSize,
     color = textColor,
-    fontWeight = fontWeight
+    fontWeight = fontWeight,
+    fontFamily = fontFamily,
+    modifier = modifier
   )
 }
 
@@ -2212,464 +3052,5 @@ fun AboutScreen(
   }
 }
 
-@Composable
-fun SettingsScreen(
-  settingsManager: SettingsManager,
-  onBack: () -> Unit
-) {
-  val context = LocalContext.current
-  val settingsState by settingsManager.settings.collectAsStateWithLifecycle()
 
-  val previewFontSize = when (settingsState.fontSize) {
-    "Small" -> 15.sp
-    "Large" -> 23.sp
-    "Extra Large" -> 28.sp
-    else -> 19.sp // Medium
-  }
-
-  val previewFontFamily = when (settingsState.fontFamily) {
-    "Sant Lipi" -> santLipiFontFamily
-    "Unicode Gurmukhi" -> FontFamily.SansSerif
-    else -> FontFamily.Default
-  }
-
-  val previewLineHeight = previewFontSize * settingsState.lineSpacing
-
-  Scaffold(
-    modifier = Modifier
-      .fillMaxSize()
-      .testTag("settings_screen_scaffold"),
-    containerColor = MaterialTheme.colorScheme.background
-  ) { innerPadding ->
-    Column(
-      modifier = Modifier
-        .fillMaxSize()
-        .padding(innerPadding)
-        .padding(horizontal = 20.dp)
-    ) {
-      TopAppBar(
-        title = "ਸੈਟਿੰਗਾਂ",
-        onBack = onBack,
-        modifier = Modifier.padding(top = 8.dp)
-      )
-
-      LazyColumn(
-        modifier = Modifier
-          .fillMaxSize()
-          .weight(1f)
-          .testTag("settings_list"),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp)
-      ) {
-        // 1. Live Preview Section
-        item {
-          Text(
-            text = "ਪੂਰਵਦਰਸ਼ਨ (Preview)",
-            style = MaterialTheme.typography.titleMedium.copy(
-              fontWeight = FontWeight.Bold,
-              color = SaffronPrimary
-            )
-          )
-          Spacer(modifier = Modifier.height(8.dp))
-          Card(
-            colors = CardDefaults.cardColors(
-              containerColor = if (androidx.compose.foundation.isSystemInDarkTheme()) Color(0xFF1E1E1E) else Slate50
-            ),
-            border = BorderStroke(1.dp, SaffronBorder),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().testTag("settings_preview_card")
-          ) {
-            Column(
-              modifier = Modifier.padding(16.dp).fillMaxWidth(),
-              horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-              Text(
-                text = buildGurmukhiLine("ੴ ਸਤਿ ਨਾਮੁ ਕਰਤਾ ਪੁਰਖੁ ਨਿਰਭਉ ਨਿਰਵੈਰੁ ॥", settingsState.vishramColor),
-                style = MaterialTheme.typography.titleMedium.copy(
-                  fontWeight = FontWeight.Bold,
-                  fontSize = previewFontSize,
-                  fontFamily = previewFontFamily,
-                  color = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else TextMedium,
-                  textAlign = TextAlign.Center,
-                  lineHeight = previewLineHeight
-                ),
-                modifier = Modifier.fillMaxWidth()
-              )
-              Spacer(modifier = Modifier.height(6.dp))
-              Text(
-                text = "One Universal Creator God. Truth is the Name. Creator Being Personified.",
-                style = MaterialTheme.typography.bodySmall.copy(
-                  fontSize = 11.sp,
-                  color = TextGray,
-                  textAlign = TextAlign.Center
-                ),
-                modifier = Modifier.fillMaxWidth()
-              )
-            }
-          }
-        }
-
-        // 2. Reading Experience Section
-        item {
-          Text(
-            text = "ਪਾਠ ਅਨੁਭਵ (Reading Experience)",
-            style = MaterialTheme.typography.titleMedium.copy(
-              fontWeight = FontWeight.Bold,
-              color = SaffronPrimary
-            )
-          )
-        }
-
-        // Font Size Picker
-        item {
-          Card(
-            colors = CardDefaults.cardColors(containerColor = Slate50),
-            border = BorderStroke(1.dp, Slate200),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().testTag("font_size_setting_card")
-          ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-              Text(
-                text = "ਅੱਖਰਾਂ ਦਾ ਅਕਾਰ (Font Size)",
-                fontWeight = FontWeight.Bold,
-                color = TextMedium,
-                fontSize = 15.sp
-              )
-              Spacer(modifier = Modifier.height(12.dp))
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-              ) {
-                listOf("Small", "Medium", "Large", "Extra Large").forEach { size ->
-                  val isSelected = settingsState.fontSize == size
-                  Card(
-                    onClick = { settingsManager.updateFontSize(size) },
-                    colors = CardDefaults.cardColors(
-                      containerColor = if (isSelected) SaffronPrimary else Color.White
-                    ),
-                    border = BorderStroke(1.dp, if (isSelected) SaffronPrimary else Slate200),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f).height(40.dp).testTag("font_size_btn_$size")
-                  ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                      Text(
-                        text = when(size) {
-                          "Small" -> "ਛੋਟਾ"
-                          "Medium" -> "ਦਰਮਿਆਨਾ"
-                          "Large" -> "ਵੱਡਾ"
-                          else -> "ਬਹੁਤ ਵੱਡਾ"
-                        },
-                        style = MaterialTheme.typography.bodySmall.copy(
-                          fontWeight = FontWeight.Bold,
-                          color = if (isSelected) Color.White else TextMedium,
-                          fontSize = 12.sp
-                        )
-                      )
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        // Font Family Picker
-        item {
-          Card(
-            colors = CardDefaults.cardColors(containerColor = Slate50),
-            border = BorderStroke(1.dp, Slate200),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().testTag("font_family_setting_card")
-          ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-              Text(
-                text = "ਫੋਂਟ ਸ਼ੈਲੀ (Font Family)",
-                fontWeight = FontWeight.Bold,
-                color = TextMedium,
-                fontSize = 15.sp
-              )
-              Spacer(modifier = Modifier.height(12.dp))
-              Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-              ) {
-                listOf("Default Gurmukhi", "Sant Lipi", "Unicode Gurmukhi").forEach { family ->
-                  val isSelected = settingsState.fontFamily == family
-                  Card(
-                    onClick = { settingsManager.updateFontFamily(family) },
-                    colors = CardDefaults.cardColors(
-                      containerColor = if (isSelected) SaffronLight else Color.White
-                    ),
-                    border = BorderStroke(1.dp, if (isSelected) SaffronPrimary else Slate200),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("font_family_btn_$family")
-                  ) {
-                    Row(
-                      modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                      horizontalArrangement = Arrangement.SpaceBetween,
-                      verticalAlignment = Alignment.CenterVertically
-                    ) {
-                      Text(
-                        text = when(family) {
-                          "Default Gurmukhi" -> "ਸਿਸਟਮ ਫੋਂਟ (Default Gurmukhi)"
-                          "Sant Lipi" -> "ਪੁਰਾਤਨ ਲਿਪੀ (Sant Lipi)"
-                          else -> "ਯੂਨੀਕੋਡ (Unicode Gurmukhi)"
-                        },
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                          fontWeight = FontWeight.Bold,
-                          color = TextMedium,
-                          fontFamily = if (family == "Sant Lipi") santLipiFontFamily else if (family == "Unicode Gurmukhi") FontFamily.SansSerif else FontFamily.Default
-                        )
-                      )
-                      if (isSelected) {
-                        Text(text = "✓", color = SaffronPrimary, fontWeight = FontWeight.Bold)
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        // Line Spacing Slider
-        item {
-          Card(
-            colors = CardDefaults.cardColors(containerColor = Slate50),
-            border = BorderStroke(1.dp, Slate200),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().testTag("line_spacing_setting_card")
-          ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-              ) {
-                Text(
-                  text = "ਲਾਈਨਾਂ ਵਿਚਲੀ ਵਿੱਥ (Line Spacing)",
-                  fontWeight = FontWeight.Bold,
-                  color = TextMedium,
-                  fontSize = 15.sp
-                )
-                Text(
-                  text = String.format("%.1fx", settingsState.lineSpacing),
-                  fontWeight = FontWeight.Bold,
-                  color = SaffronPrimary,
-                  fontSize = 14.sp
-                )
-              }
-              Spacer(modifier = Modifier.height(8.dp))
-              androidx.compose.material3.Slider(
-                value = settingsState.lineSpacing,
-                onValueChange = { settingsManager.updateLineSpacing(it) },
-                valueRange = 1.0f..2.5f,
-                steps = 14,
-                colors = androidx.compose.material3.SliderDefaults.colors(
-                  thumbColor = SaffronPrimary,
-                  activeTrackColor = SaffronPrimary,
-                  inactiveTrackColor = Slate200
-                ),
-                modifier = Modifier.testTag("line_spacing_slider")
-              )
-            }
-          }
-        }
-
-        // 3. Theme & Keep Screen On Section
-        item {
-          Text(
-            text = "ਦਿੱਖ ਅਤੇ ਥੀਮ (Appearance)",
-            style = MaterialTheme.typography.titleMedium.copy(
-              fontWeight = FontWeight.Bold,
-              color = SaffronPrimary
-            )
-          )
-        }
-
-        // Theme selector
-        item {
-          Card(
-            colors = CardDefaults.cardColors(containerColor = Slate50),
-            border = BorderStroke(1.dp, Slate200),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().testTag("theme_setting_card")
-          ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-              Text(
-                text = "ਐਪ ਥੀਮ (Theme)",
-                fontWeight = FontWeight.Bold,
-                color = TextMedium,
-                fontSize = 15.sp
-              )
-              Spacer(modifier = Modifier.height(12.dp))
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-              ) {
-                listOf("System", "Light", "Dark").forEach { mode ->
-                  val isSelected = settingsState.themeMode == mode
-                  Card(
-                    onClick = { settingsManager.updateThemeMode(mode) },
-                    colors = CardDefaults.cardColors(
-                      containerColor = if (isSelected) SaffronPrimary else Color.White
-                    ),
-                    border = BorderStroke(1.dp, if (isSelected) SaffronPrimary else Slate200),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f).height(40.dp).testTag("theme_btn_$mode")
-                  ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                      Text(
-                        text = when(mode) {
-                          "System" -> "ਸਿਸਟਮ"
-                          "Light" -> "ਲਾਈਟ"
-                          else -> "ਡਾਰਕ"
-                        },
-                        style = MaterialTheme.typography.bodySmall.copy(
-                          fontWeight = FontWeight.Bold,
-                          color = if (isSelected) Color.White else TextMedium,
-                          fontSize = 12.sp
-                        )
-                      )
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        // Keep Screen On Switch
-        item {
-          Card(
-            colors = CardDefaults.cardColors(containerColor = Slate50),
-            border = BorderStroke(1.dp, Slate200),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().testTag("keep_screen_on_setting_card")
-          ) {
-            Row(
-              modifier = Modifier.fillMaxWidth().padding(16.dp),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              Column(modifier = Modifier.weight(1f)) {
-                Text(
-                  text = "ਸਕ੍ਰੀਨ ਚਾਲੂ ਰੱਖੋ (Keep Screen On)",
-                  fontWeight = FontWeight.Bold,
-                  color = TextMedium,
-                  fontSize = 15.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                  text = "ਪਾਠ ਕਰਦੇ ਸਮੇਂ ਸਕ੍ਰੀਨ ਬੰਦ ਨਹੀਂ ਹੋਵੇਗੀ",
-                  color = TextGray,
-                  fontSize = 12.sp
-                )
-              }
-              androidx.compose.material3.Switch(
-                checked = settingsState.keepScreenOn,
-                onCheckedChange = { settingsManager.updateKeepScreenOn(it) },
-                colors = androidx.compose.material3.SwitchDefaults.colors(
-                  checkedThumbColor = Color.White,
-                  checkedTrackColor = SaffronPrimary,
-                  uncheckedThumbColor = Slate200,
-                  uncheckedTrackColor = Color.White
-                ),
-                modifier = Modifier.testTag("keep_screen_on_switch")
-              )
-            }
-          }
-        }
-
-        // 4. Vishram Highlight Section
-        item {
-          Text(
-            text = "ਵਿਸ਼ਰਾਮ ਹਾਈਲਾਈਟ (Vishram Color)",
-            style = MaterialTheme.typography.titleMedium.copy(
-              fontWeight = FontWeight.Bold,
-              color = SaffronPrimary
-            )
-          )
-        }
-
-        // Vishram color picker
-        item {
-          Card(
-            colors = CardDefaults.cardColors(containerColor = Slate50),
-            border = BorderStroke(1.dp, Slate200),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().testTag("vishram_color_setting_card")
-          ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-              Text(
-                text = "ਹਾਈਲਾਈਟ ਰੰਗ (Highlight Color)",
-                fontWeight = FontWeight.Bold,
-                color = TextMedium,
-                fontSize = 15.sp
-              )
-              Spacer(modifier = Modifier.height(12.dp))
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-              ) {
-                val colorOptions = listOf(
-                  "#FF9933" to "Saffron",
-                  "#2E7D32" to "Green",
-                  "#1565C0" to "Blue",
-                  "#C62828" to "Red",
-                  "#6A1B9A" to "Purple",
-                  "None" to "None"
-                )
-
-                colorOptions.forEach { (colorHex, name) ->
-                  val isSelected = settingsState.vishramColor == colorHex
-                  Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                      .size(40.dp)
-                      .clip(androidx.compose.foundation.shape.CircleShape)
-                      .background(
-                        if (colorHex == "None") Color.Transparent else Color(android.graphics.Color.parseColor(colorHex)),
-                        shape = androidx.compose.foundation.shape.CircleShape
-                      )
-                      .border(
-                        width = if (isSelected) 3.dp else 1.dp,
-                        color = if (isSelected) SaffronPrimary else if (colorHex == "None") TextGray else Color.Transparent,
-                        shape = androidx.compose.foundation.shape.CircleShape
-                      )
-                      .clickable { settingsManager.updateVishramColor(colorHex) }
-                      .testTag("vishram_color_btn_$name")
-                  ) {
-                    if (colorHex == "None") {
-                      Text(text = "✕", color = TextGray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    } else if (isSelected) {
-                      Text(text = "✓", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Bottom gesture line
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
-      ) {
-        Box(
-          modifier = Modifier
-            .width(128.dp)
-            .height(6.dp)
-            .background(
-              color = Slate200,
-              shape = RoundedCornerShape(3.dp)
-            )
-        )
-      }
-    }
-  }
-}
 
