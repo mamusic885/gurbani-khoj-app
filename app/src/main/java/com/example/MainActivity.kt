@@ -4,6 +4,8 @@ import android.os.Bundle
 import android.widget.Toast
 import com.example.data.SggsDatabase
 import com.example.data.LineEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -967,35 +969,46 @@ fun BaniDetailScreen(
   LaunchedEffect(baniName) {
     if (sggsVerses.isEmpty()) {
       try {
-        val dao = SggsDatabase.getDatabase(context).sggsDao()
-        if (baniName.startsWith("sggs_shabad_")) {
-          val shabadId = baniName.removePrefix("sggs_shabad_")
-          val lineEntities = dao.getShabadByShabadId(shabadId)
-          if (lineEntities.isNotEmpty()) {
-            val firstLine = lineEntities.first()
-            val raagSuffix = if (firstLine.raag.isNotEmpty()) " • ${firstLine.raag}" else ""
-            dynamicBaniTitle = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${firstLine.source_page})$raagSuffix"
-            sggsVerses = lineEntities.mapIndexed { idx, lineEntity ->
-              Verse(
-                id = lineEntity.id.toIntOrNull() ?: lineEntity.id.hashCode(),
-                index = idx,
-                line = lineEntity.gurmukhi,
-                translation = lineEntity.translation
-              )
-            }
-          }
-        } else if (baniName.startsWith("sggs_ang_") || baniName.contains("ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ") || baniName.contains("ਅੰਗ")) {
-          val parsedAng = baniName.filter { it.isDigit() }.toIntOrNull() ?: 1
-          dynamicBaniTitle = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ $parsedAng)"
-          dao.getLinesByAng(parsedAng).collect { entities ->
-            if (entities.isNotEmpty()) {
-              sggsVerses = entities.mapIndexed { idx, e ->
+        withContext(Dispatchers.IO) {
+          val dao = SggsDatabase.getDatabase(context).sggsDao()
+          if (baniName.startsWith("sggs_shabad_")) {
+            val shabadId = baniName.removePrefix("sggs_shabad_")
+            val lineEntities = dao.getShabadByShabadId(shabadId)
+            if (lineEntities.isNotEmpty()) {
+              val firstLine = lineEntities.first()
+              val raagSuffix = if (firstLine.raag.isNotEmpty()) " • ${firstLine.raag}" else ""
+              val title = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${firstLine.source_page})$raagSuffix"
+              val verses = lineEntities.mapIndexed { idx, lineEntity ->
                 Verse(
-                  id = e.id.toIntOrNull() ?: e.id.hashCode(),
+                  id = lineEntity.id.toIntOrNull() ?: lineEntity.id.hashCode(),
                   index = idx,
-                  line = e.gurmukhi,
-                  translation = e.translation
+                  line = lineEntity.gurmukhi,
+                  translation = lineEntity.translation
                 )
+              }
+              withContext(Dispatchers.Main) {
+                dynamicBaniTitle = title
+                sggsVerses = verses
+              }
+            }
+          } else if (baniName.startsWith("sggs_ang_") || baniName.contains("ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ") || baniName.contains("ਅੰਗ")) {
+            val parsedAng = baniName.filter { it.isDigit() }.toIntOrNull() ?: 1
+            withContext(Dispatchers.Main) {
+              dynamicBaniTitle = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ $parsedAng)"
+            }
+            dao.getLinesByAng(parsedAng).collect { entities ->
+              if (entities.isNotEmpty()) {
+                val verses = entities.mapIndexed { idx, e ->
+                  Verse(
+                    id = e.id.toIntOrNull() ?: e.id.hashCode(),
+                    index = idx,
+                    line = e.gurmukhi,
+                    translation = e.translation
+                  )
+                }
+                withContext(Dispatchers.Main) {
+                  sggsVerses = verses
+                }
               }
             }
           }
@@ -1803,69 +1816,73 @@ fun SearchScreen(
       return@LaunchedEffect
     }
 
-    val results = mutableListOf<SearchResult>()
-    val cleanQ = q.replace(" ", "").replace("॥", "").replace("|", "")
-    val cleanLowerQ = cleanQ.lowercase()
-    val cleanNormQ = cleanQ.map { normalizeGurmukhiChar(it) }.joinToString("")
-    val isRomanQuery = cleanLowerQ.any { it in 'a'..'z' }
-    val parsedAng = q.replace("ਅੰਗ", "").replace("ang", "", ignoreCase = true).trim().toIntOrNull()
+    withContext(Dispatchers.IO) {
+      val results = mutableListOf<SearchResult>()
+      val cleanQ = q.replace(" ", "").replace("॥", "").replace("|", "")
+      val cleanLowerQ = cleanQ.lowercase()
+      val cleanNormQ = cleanQ.map { normalizeGurmukhiChar(it) }.joinToString("")
+      val isRomanQuery = cleanLowerQ.any { it in 'a'..'z' }
+      val parsedAng = q.replace("ਅੰਗ", "").replace("ang", "", ignoreCase = true).trim().toIntOrNull()
 
-    try {
-      val dao = SggsDatabase.getDatabase(context).sggsDao()
-      val dbLines = mutableListOf<LineEntity>()
+      try {
+        val dao = SggsDatabase.getDatabase(context).sggsDao()
+        val dbLines = mutableListOf<LineEntity>()
 
-      if (parsedAng != null && (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.ANG)) {
-        dbLines.addAll(dao.searchByAng(parsedAng))
-      }
+        if (parsedAng != null && (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.ANG)) {
+          dbLines.addAll(dao.searchByAng(parsedAng))
+        }
 
-      if (cleanQ.isNotEmpty()) {
+        if (cleanQ.isNotEmpty()) {
+          val asciiQ = convertGurmukhiToGurbaniAkharAscii(cleanQ)
+          val fullTextAsciiQ = convertGurmukhiToGurbaniAkharAscii(q.trim())
+          android.util.Log.d("GurbaniSearch", "Executing search: raw='$cleanQ', ascii='$asciiQ' on table 'lines', column 'first_letters'")
+          if (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.FIRST_LETTER) {
+            dbLines.addAll(dao.searchByFirstLetters(cleanQ, asciiQ))
+          }
+          if (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.FULL_TEXT) {
+            dbLines.addAll(dao.searchByFullText(q.trim(), fullTextAsciiQ))
+          }
+        }
+
+        val uniqueLines = dbLines.distinctBy { it.id }
         val asciiQ = convertGurmukhiToGurbaniAkharAscii(cleanQ)
-        val fullTextAsciiQ = convertGurmukhiToGurbaniAkharAscii(q.trim())
-        android.util.Log.d("GurbaniSearch", "Executing search: raw='$cleanQ', ascii='$asciiQ' on table 'lines', column 'first_letters'")
-        if (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.FIRST_LETTER) {
-          dbLines.addAll(dao.searchByFirstLetters(cleanQ, asciiQ))
-        }
-        if (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.FULL_TEXT) {
-          dbLines.addAll(dao.searchByFullText(q.trim(), fullTextAsciiQ))
-        }
-      }
-
-      val uniqueLines = dbLines.distinctBy { it.id }
-      val asciiQ = convertGurmukhiToGurbaniAkharAscii(cleanQ)
-      uniqueLines.forEach { lineEntity ->
-        val verse = Verse(
-          id = lineEntity.id.toIntOrNull() ?: lineEntity.id.hashCode(),
-          index = lineEntity.source_line,
-          line = convertGurbaniAkharToUnicode(lineEntity.gurmukhi),
-          translation = lineEntity.translation
-        )
-
-        val raagSuffix = if (lineEntity.raag.isNotEmpty()) " • ${lineEntity.raag}" else ""
-        val titleText = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${lineEntity.source_page})$raagSuffix"
-
-        val filterType = when {
-          parsedAng != null && lineEntity.source_page == parsedAng -> SearchFilterType.ANG
-          cleanQ.isNotEmpty() && (lineEntity.first_letters.startsWith(cleanQ, ignoreCase = true) || lineEntity.first_letters.startsWith(asciiQ, ignoreCase = true)) -> SearchFilterType.FIRST_LETTER
-          else -> SearchFilterType.FULL_TEXT
-        }
-
-        results.add(
-          SearchResult(
-            baniName = titleText,
-            fileName = "sggs_shabad_${lineEntity.shabad_id}",
-            verse = verse,
-            searchMethod = filterType,
-            highlightRange = null,
-            matchedQuery = q,
-            ang = lineEntity.source_page
+        uniqueLines.forEach { lineEntity ->
+          val verse = Verse(
+            id = lineEntity.id.toIntOrNull() ?: lineEntity.id.hashCode(),
+            index = lineEntity.source_line,
+            line = convertGurbaniAkharToUnicode(lineEntity.gurmukhi),
+            translation = lineEntity.translation
           )
-        )
-      }
-    } catch (e: Exception) {
-      e.printStackTrace()
-    }
 
-    searchResults = results
+          val raagSuffix = if (lineEntity.raag.isNotEmpty()) " • ${lineEntity.raag}" else ""
+          val titleText = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${lineEntity.source_page})$raagSuffix"
+
+          val filterType = when {
+            parsedAng != null && lineEntity.source_page == parsedAng -> SearchFilterType.ANG
+            cleanQ.isNotEmpty() && (lineEntity.first_letters.startsWith(cleanQ, ignoreCase = true) || lineEntity.first_letters.startsWith(asciiQ, ignoreCase = true)) -> SearchFilterType.FIRST_LETTER
+            else -> SearchFilterType.FULL_TEXT
+          }
+
+          results.add(
+            SearchResult(
+              baniName = titleText,
+              fileName = "sggs_shabad_${lineEntity.shabad_id}",
+              verse = verse,
+              searchMethod = filterType,
+              highlightRange = null,
+              matchedQuery = q,
+              ang = lineEntity.source_page
+            )
+          )
+        }
+      } catch (e: Exception) {
+        e.printStackTrace()
+      }
+
+      withContext(Dispatchers.Main) {
+        searchResults = results
+      }
+    }
   }
 
   Scaffold(
