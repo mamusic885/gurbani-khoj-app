@@ -348,6 +348,9 @@ fun MainApp(viewModel: BookmarksViewModel, settingsManager: SettingsManager) {
           if (navigationStack.size > 1) {
             navigationStack = navigationStack.dropLast(1)
           }
+        },
+        onNavigateToAbout = {
+          navigationStack = navigationStack + Screen.About
         }
       )
     }
@@ -3539,6 +3542,14 @@ fun WelcomeFeatureRow(emoji: String, title: String, desc: String) {
 fun AboutScreen(
   onBack: () -> Unit
 ) {
+  val versionName = remember {
+    try {
+      com.example.BuildConfig.VERSION_NAME
+    } catch (e: Exception) {
+      "1.0.0"
+    }
+  }
+
   Scaffold(
     modifier = Modifier
       .fillMaxSize()
@@ -3552,7 +3563,7 @@ fun AboutScreen(
         .padding(horizontal = 20.dp)
     ) {
       TopAppBar(
-        title = "ℹ️ ਐਪ ਬਾਰੇ (About)",
+        title = "ਐਪ ਬਾਰੇ",
         onBack = onBack,
         modifier = Modifier.padding(top = 8.dp)
       )
@@ -3565,132 +3576,175 @@ fun AboutScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp)
       ) {
+        // App Header Card
         item {
           Card(
             colors = CardDefaults.cardColors(containerColor = SaffronLight),
             border = BorderStroke(1.dp, SaffronBorder),
             shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth().testTag("about_header_card")
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("about_header_card")
           ) {
             Column(
-              modifier = Modifier.padding(20.dp).fillMaxWidth(),
+              modifier = Modifier
+                .padding(24.dp)
+                .fillMaxWidth(),
               horizontalAlignment = Alignment.CenterHorizontally
             ) {
               Text(
                 text = "ੴ",
                 style = MaterialTheme.typography.displayMedium.copy(
-                  fontSize = 48.sp,
+                  fontSize = 52.sp,
                   color = SaffronPrimary,
                   fontWeight = FontWeight.Bold
                 )
               )
               Spacer(modifier = Modifier.height(8.dp))
               Text(
-                text = "ਗੁਰਬਾਣੀ ਖੋਜ (Gurbani Khoj)",
-                style = MaterialTheme.typography.titleLarge.copy(
+                text = "Gurbani Khoj",
+                style = MaterialTheme.typography.headlineMedium.copy(
                   fontWeight = FontWeight.ExtraBold,
                   color = TextMedium,
-                  fontSize = 20.sp
-                )
-              )
-              Spacer(modifier = Modifier.height(4.dp))
-              Text(
-                text = "ਸੰਸਕਰਣ: 1.0.0 (Version 1.0.0)",
-                style = MaterialTheme.typography.bodySmall.copy(
-                  color = SaffronDark,
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 12.sp
-                )
-              )
-              Spacer(modifier = Modifier.height(6.dp))
-              Text(
-                text = "Made by Manjot Singh M.Aa✶",
-                style = MaterialTheme.typography.bodyMedium.copy(
-                  color = TextMedium,
-                  fontWeight = FontWeight.SemiBold,
-                  fontSize = 13.sp
+                  fontSize = 24.sp
                 ),
-                modifier = Modifier.testTag("made_by_credit")
+                modifier = Modifier.testTag("about_app_name")
               )
+              Spacer(modifier = Modifier.height(2.dp))
+              Text(
+                text = "ਗੁਰਬਾਣੀ ਖੋਜ",
+                style = MaterialTheme.typography.titleMedium.copy(
+                  fontWeight = FontWeight.Bold,
+                  color = SaffronDark,
+                  fontSize = 16.sp
+                )
+              )
+              Spacer(modifier = Modifier.height(8.dp))
+              Box(
+                modifier = Modifier
+                  .clip(RoundedCornerShape(12.dp))
+                  .background(SaffronPrimary)
+                  .padding(horizontal = 12.dp, vertical = 4.dp)
+              ) {
+                Text(
+                  text = "Version $versionName",
+                  style = MaterialTheme.typography.labelMedium.copy(
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                  ),
+                  modifier = Modifier.testTag("about_app_version")
+                )
+              }
             }
           }
         }
 
+        // About Gurbani Khoj Section Card
         item {
           Card(
             colors = CardDefaults.cardColors(containerColor = Slate50),
             border = BorderStroke(1.dp, Slate200),
             shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().testTag("about_quote_card")
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("about_details_card")
           ) {
             Column(
-              modifier = Modifier.padding(16.dp).fillMaxWidth(),
+              modifier = Modifier.padding(20.dp)
+            ) {
+              Text(
+                text = "ਐਪ ਬਾਰੇ",
+                style = MaterialTheme.typography.titleLarge.copy(
+                  fontWeight = FontWeight.Bold,
+                  color = TextMedium,
+                  fontSize = 18.sp
+                ),
+                modifier = Modifier.testTag("about_info_title")
+              )
+              Spacer(modifier = Modifier.height(12.dp))
+
+              val bulletPoints = listOf(
+                "ਗੁਰਬਾਣੀ ਖੋਜ ਇੱਕ ਮੁਫ਼ਤ ਅਤੇ ਆਫਲਾਈਨ ਗੁਰਬਾਣੀ ਖੋਜ ਐਪ ਹੈ।",
+                "ਇਸ ਐਪ ਰਾਹੀਂ ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ ਵਿੱਚੋਂ ਗੁਰਬਾਣੀ ਨੂੰ ਤੇਜ਼ੀ ਨਾਲ ਖੋਜਿਆ ਜਾ ਸਕਦਾ ਹੈ।",
+                "ਅੱਖਰ ਖੋਜ ਅਤੇ ਪੂਰੇ ਸ਼ਬਦਾਂ ਰਾਹੀਂ ਖੋਜ ਦੀ ਸੁਵਿਧਾ ਉਪਲਬਧ ਹੈ।",
+                "ਨਿਤਨੇਮ ਬਾਣੀਆਂ ਨੂੰ ਸੌਖੇ ਅਤੇ ਸਾਫ਼ ਇੰਟਰਫੇਸ ਵਿੱਚ ਪੜ੍ਹਿਆ ਜਾ ਸਕਦਾ ਹੈ।",
+                "ਮਨਪਸੰਦ ਗੁਰਬਾਣੀ ਨੂੰ ਬੁੱਕਮਾਰਕ ਕਰਕੇ ਬਾਅਦ ਵਿੱਚ ਆਸਾਨੀ ਨਾਲ ਪੜ੍ਹਿਆ ਜਾ ਸਕਦਾ ਹੈ।",
+                "ਇਹ ਐਪ ਸੰਗਤ ਦੀ ਸੇਵਾ ਲਈ ਸਤਿਕਾਰ ਅਤੇ ਸਾਦਗੀ ਨਾਲ ਤਿਆਰ ਕੀਤੀ ਗਈ ਹੈ।",
+                "ਸਾਡਾ ਉਦੇਸ਼ ਗੁਰਬਾਣੀ ਨੂੰ ਹਰ ਕਿਸੇ ਤੱਕ ਆਸਾਨੀ ਨਾਲ ਪਹੁੰਚਾਉਣਾ ਹੈ।"
+              )
+
+              bulletPoints.forEach { point ->
+                Row(
+                  modifier = Modifier.padding(vertical = 4.dp),
+                  verticalAlignment = Alignment.Top
+                ) {
+                  Text(
+                    text = "• ",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                      fontWeight = FontWeight.Bold,
+                      color = SaffronPrimary,
+                      fontSize = 15.sp
+                    )
+                  )
+                  Text(
+                    text = point,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                      color = TextMedium,
+                      fontSize = 14.sp,
+                      lineHeight = 20.sp
+                    )
+                  )
+                }
+              }
+            }
+          }
+        }
+
+        // Made By & Copyright Card
+        item {
+          Card(
+            colors = CardDefaults.cardColors(containerColor = Slate50),
+            border = BorderStroke(1.dp, Slate200),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("about_credits_card")
+          ) {
+            Column(
+              modifier = Modifier
+                .padding(20.dp)
+                .fillMaxWidth(),
               horizontalAlignment = Alignment.CenterHorizontally
             ) {
               Text(
-                text = "“ ਗੁਰਬਾਣੀ ਇਸੁ ਜਗ ਮਹਿ ਚਾਨਣੁ ਕਰਮਿ ਵਸੈ ਮਨਿ ਆਏ ॥ ”",
-                style = MaterialTheme.typography.titleMedium.copy(
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 16.sp,
-                  color = SaffronPrimary,
-                  textAlign = TextAlign.Center,
-                  lineHeight = 22.sp
+                text = "Made by",
+                style = MaterialTheme.typography.labelLarge.copy(
+                  color = TextGray,
+                  fontSize = 12.sp,
+                  fontWeight = FontWeight.Medium
                 )
               )
-            }
-          }
-        }
+              Spacer(modifier = Modifier.height(2.dp))
+              Text(
+                text = "Manjot Singh M.Aa*",
+                style = MaterialTheme.typography.titleMedium.copy(
+                  color = TextMedium,
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 16.sp
+                ),
+                modifier = Modifier.testTag("made_by_credit")
+              )
 
-        item {
-          Card(
-            colors = CardDefaults.cardColors(containerColor = Slate50),
-            border = BorderStroke(1.dp, Slate200),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().testTag("about_details_card")
-          ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-              Text(
-                text = "ਮੁੱਖ ਵਿਸ਼ੇਸ਼ਤਾਵਾਂ (Key Features)",
-                fontWeight = FontWeight.Bold,
-                color = TextMedium,
-                fontSize = 15.sp
-              )
-              Spacer(modifier = Modifier.height(10.dp))
-              Text(
-                text = "• 100% ਆਫਲਾਈਨ (No Internet Required)\n" +
-                       "• ਸੰਪੂਰਨ ਨਿਤਨੇਮ ਅਤੇ ਸੁੰਦਰ ਗੁਰਬਾਣੀ ਲਾਇਬ੍ਰੇਰੀ\n" +
-                       "• ਪਹਿਲੇ ਅੱਖਰਾਂ ਨਾਲ ਤੀਵਰ ਖੋਜ ਪ੍ਰਣਾਲੀ\n" +
-                       "• ਅਨੁਕੂਲ ਫੋਂਟ, ਲਾਈਨ ਸਪੇਸਿੰਗ ਅਤੇ ਵਿਸ਼ਰਾਮ ਹਾਈਲਾਈਟ\n" +
-                       "• ਬੁੱਕਮਾਰਕਸ JSON Export/Import ਬੈਕਅੱਪ\n" +
-                       "• ਡਾਰਕ, ਲਾਈਟ ਅਤੇ ਸਿਸਟਮ ਥੀਮ ਸਪੋਰਟ",
-                fontSize = 13.sp,
-                color = TextMedium,
-                lineHeight = 22.sp
-              )
-            }
-          }
-        }
+              Spacer(modifier = Modifier.height(16.dp))
 
-        item {
-          Card(
-            colors = CardDefaults.cardColors(containerColor = Slate50),
-            border = BorderStroke(1.dp, Slate200),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().testTag("about_privacy_card")
-          ) {
-            Column(modifier = Modifier.padding(16.dp)) {
               Text(
-                text = "ਸੁਰੱਖਿਆ ਅਤੇ ਨਿੱਜਤਾ (Privacy & Security)",
-                fontWeight = FontWeight.Bold,
-                color = TextMedium,
-                fontSize = 15.sp
-              )
-              Spacer(modifier = Modifier.height(6.dp))
-              Text(
-                text = "ਇਹ ਐਪ ਪੂਰੀ ਤਰ੍ਹਾਂ ਨਿੱਜੀ ਹੈ। ਕੋਈ ਵੀ ਵਿਗਿਆਪਨ (Ads) ਨਹੀਂ ਹਨ ਅਤੇ ਕੋਈ ਵੀ ਨਿੱਜੀ ਡਾਟਾ ਇਕੱਠਾ ਨਹੀਂ ਕੀਤਾ ਜਾਂਦਾ। ਸਾਰਾ ਡਾਟਾ ਤੁਹਾਡੇ ਡਿਵਾਈਸ 'ਤੇ ਸੁਰੱਖਿਅਤ ਰਹਿੰਦਾ ਹੈ।",
-                fontSize = 12.sp,
-                color = TextGray,
-                lineHeight = 18.sp
+                text = "© 2026 Gurbani Khoj",
+                style = MaterialTheme.typography.bodySmall.copy(
+                  color = TextGray,
+                  fontSize = 12.sp
+                ),
+                modifier = Modifier.testTag("copyright_text")
               )
             }
           }

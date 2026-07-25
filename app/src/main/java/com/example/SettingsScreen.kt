@@ -47,7 +47,8 @@ import com.example.ui.theme.*
 @Composable
 fun SettingsScreen(
     settingsManager: SettingsManager,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToAbout: () -> Unit = {}
 ) {
     val settingsState by settingsManager.settingsState.collectAsStateWithLifecycle()
 
@@ -592,6 +593,62 @@ fun SettingsScreen(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // 6. About Section
+                item {
+                    Text(
+                        text = "ਐਪ ਬਾਰੇ (About App)",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = SaffronPrimary
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Slate50),
+                        border = BorderStroke(1.dp, Slate200),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigateToAbout() }
+                            .testTag("about_setting_card")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Text(text = "ℹ️", fontSize = 22.sp)
+                                Column {
+                                    Text(
+                                        text = "About Gurbani Khoj / ਐਪ ਬਾਰੇ",
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextMedium,
+                                        fontSize = 15.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Version info, features & credits",
+                                        color = TextGray,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "→",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SaffronPrimary
+                            )
                         }
                     }
                 }
