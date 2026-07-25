@@ -2129,13 +2129,13 @@ fun GurmukhiKeyboard(
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(8.dp)
+        .padding(4.dp)
     ) {
       // Category Tab Header
       Row(
         modifier = Modifier
           .fillMaxWidth()
-          .padding(bottom = 6.dp),
+          .padding(bottom = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
       ) {
         val tabs = listOf("🔤 ਅੱਖਰ (35+)", "🎨 ਮਾਤਰਾਵਾਂ", "🔢 ਅੰਕ / saskba")
@@ -2148,12 +2148,12 @@ fun GurmukhiKeyboard(
               .background(if (isSelected) SaffronPrimary else Color.White)
               .border(1.dp, if (isSelected) SaffronPrimary else Slate200, RoundedCornerShape(8.dp))
               .clickable { keyboardTab = index }
-              .padding(vertical = 6.dp),
+              .padding(vertical = 4.dp),
             contentAlignment = Alignment.Center
           ) {
             Text(
               text = label,
-              fontSize = 11.sp,
+              fontSize = 10.sp,
               fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
               color = if (isSelected) Color.White else TextMedium
             )
@@ -2170,7 +2170,7 @@ fun GurmukhiKeyboard(
 
       Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(2.dp)
       ) {
         currentKeyRows.forEach { rowKeys ->
           Row(
@@ -2181,7 +2181,7 @@ fun GurmukhiKeyboard(
               Box(
                 modifier = Modifier
                   .weight(1f)
-                  .height(38.dp)
+                  .height(30.dp)
                   .clip(RoundedCornerShape(8.dp))
                   .background(Color.White)
                   .border(1.dp, Slate200, RoundedCornerShape(8.dp))
@@ -2190,7 +2190,7 @@ fun GurmukhiKeyboard(
               ) {
                 Text(
                   text = keyStr,
-                  fontSize = 15.sp,
+                  fontSize = 14.sp,
                   fontWeight = FontWeight.Bold,
                   color = TextDark,
                   textAlign = TextAlign.Center
@@ -2201,18 +2201,18 @@ fun GurmukhiKeyboard(
         }
       }
 
-      Spacer(modifier = Modifier.height(6.dp))
+      Spacer(modifier = Modifier.height(3.dp))
 
       // Bottom Control Row
       Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
       ) {
         // Space key
         Box(
           modifier = Modifier
             .weight(2f)
-            .height(38.dp)
+            .height(30.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(SaffronLight)
             .border(1.dp, SaffronPrimary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
@@ -2221,7 +2221,7 @@ fun GurmukhiKeyboard(
         ) {
           Text(
             text = "␣ ਖਾਲੀ ਥਾਂ (Space)",
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = SaffronDark
           )
@@ -2231,7 +2231,7 @@ fun GurmukhiKeyboard(
         Box(
           modifier = Modifier
             .weight(1f)
-            .height(38.dp)
+            .height(30.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Color.White)
             .border(1.dp, Slate200, RoundedCornerShape(8.dp))
@@ -2240,7 +2240,7 @@ fun GurmukhiKeyboard(
         ) {
           Text(
             text = "⌫",
-            fontSize = 16.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
             color = Color.Red
           )
@@ -2250,7 +2250,7 @@ fun GurmukhiKeyboard(
         Box(
           modifier = Modifier
             .weight(1f)
-            .height(38.dp)
+            .height(30.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Color.White)
             .border(1.dp, Slate200, RoundedCornerShape(8.dp))
@@ -2259,7 +2259,7 @@ fun GurmukhiKeyboard(
         ) {
           Text(
             text = "ਸਾਫ਼",
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = TextMedium
           )
@@ -2269,7 +2269,7 @@ fun GurmukhiKeyboard(
         Box(
           modifier = Modifier
             .weight(1f)
-            .height(38.dp)
+            .height(30.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(SaffronPrimary)
             .clickable { handleSearchClick() },
@@ -2277,7 +2277,7 @@ fun GurmukhiKeyboard(
         ) {
           Text(
             text = "🔍 ਖੋਜ",
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White
           )
@@ -2287,7 +2287,7 @@ fun GurmukhiKeyboard(
         Box(
           modifier = Modifier
             .weight(1f)
-            .height(38.dp)
+            .height(30.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Slate200)
             .clickable { handleHideClick() },
@@ -2295,7 +2295,7 @@ fun GurmukhiKeyboard(
         ) {
           Text(
             text = "⌨️ ਓਹਲੇ",
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             color = TextDark
           )
@@ -2897,7 +2897,7 @@ fun SearchScreen(
           onClearClick = { searchQuery = "" },
           onSearchClick = { showKeyboard = false },
           onHideClick = { showKeyboard = false },
-          modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+          modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)
         )
       }
     }
