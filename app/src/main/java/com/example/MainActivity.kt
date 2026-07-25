@@ -47,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,8 +73,20 @@ import androidx.compose.ui.text.buildAnnotatedString
 import com.example.db.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.snapshotFlow
 import android.content.Intent
@@ -121,7 +134,8 @@ data class Verse(
   val line: String,
   val pauseType: String? = null,
   val bookmarked: Boolean = false,
-  val translation: String = ""
+  val translation: String = "",
+  val punjabiTranslation: String = ""
 )
 
 enum class SearchFilterType {
@@ -162,17 +176,20 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
   return try {
     val jsonString = context.assets.open("bani/$fileName").bufferedReader().use { it.readText() }
     val jsonObject = org.json.JSONObject(jsonString)
-    val title = jsonObject.getString("title")
+    val rawTitle = jsonObject.getString("title")
+    val title = convertGurbaniAkharToUnicode(rawTitle)
     val versesArray = jsonObject.getJSONArray("verses")
     val verses = mutableListOf<Verse>()
     for (i in 0 until versesArray.length()) {
       val verseObj = versesArray.getJSONObject(i)
       val id = verseObj.optInt("id", i)
-      val line = verseObj.getString("line")
+      val rawLine = verseObj.getString("line")
+      val line = convertGurbaniAkharToUnicode(rawLine)
       val pauseType = if (verseObj.has("pauseType")) verseObj.getString("pauseType") else null
       val bookmarked = verseObj.optBoolean("bookmarked", false)
       val translation = verseObj.optString("translation", "")
-      verses.add(Verse(id = id, index = i, line = line, pauseType = pauseType, bookmarked = bookmarked, translation = translation))
+      val punjabiTranslation = verseObj.optString("punjabiTranslation", verseObj.optString("punjabi_translation", ""))
+      verses.add(Verse(id = id, index = i, line = line, pauseType = pauseType, bookmarked = bookmarked, translation = translation, punjabiTranslation = punjabiTranslation))
     }
     Bani(fileName = fileName, title = title, verses = verses)
   } catch (e: Exception) {
@@ -198,6 +215,7 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
 sealed class Screen {
   object Welcome : Screen()
   object Home : Screen()
+  object Sggs : Screen()
   object Nitnem : Screen()
   object Search : Screen()
   object Bookmarks : Screen()
@@ -240,6 +258,9 @@ fun MainApp(viewModel: BookmarksViewModel, settingsManager: SettingsManager) {
     }
     is Screen.Home -> {
       HomeScreen(
+        onNavigateToSggs = {
+          navigationStack = navigationStack + Screen.Sggs
+        },
         onNavigateToNitnem = {
           navigationStack = navigationStack + Screen.Nitnem
         },
@@ -254,6 +275,18 @@ fun MainApp(viewModel: BookmarksViewModel, settingsManager: SettingsManager) {
         },
         onNavigateToAbout = {
           navigationStack = navigationStack + Screen.About
+        }
+      )
+    }
+    is Screen.Sggs -> {
+      SggsScreen(
+        onBack = {
+          if (navigationStack.size > 1) {
+            navigationStack = navigationStack.dropLast(1)
+          }
+        },
+        onNavigateToBani = { baniName ->
+          navigationStack = navigationStack + Screen.BaniDetail(name = baniName)
         }
       )
     }
@@ -332,6 +365,7 @@ fun MainApp(viewModel: BookmarksViewModel, settingsManager: SettingsManager) {
 
 @Composable
 fun HomeScreen(
+  onNavigateToSggs: () -> Unit,
   onNavigateToNitnem: () -> Unit,
   onNavigateToSearch: () -> Unit,
   onNavigateToBookmarks: () -> Unit,
@@ -468,6 +502,13 @@ fun HomeScreen(
               ),
               MenuData(
                 emoji = "📖",
+                title = "ਸ਼੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ",
+                testTag = "sggs_button",
+                toastMessage = "ਸ਼੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ",
+                buttonType = ButtonType.SECONDARY
+              ),
+              MenuData(
+                emoji = "📖",
                 title = "ਨਿਤਨੇਮ ਸਾਹਿਬ",
                 testTag = "nitnem_sahib_button",
                 toastMessage = "ਨਿਤਨੇਮ ਸਾਹਿਬ",
@@ -503,7 +544,9 @@ fun HomeScreen(
                 testTag = item.testTag,
                 buttonType = item.buttonType,
                 onClick = {
-                  if (item.testTag == "nitnem_sahib_button") {
+                  if (item.testTag == "sggs_button") {
+                    onNavigateToSggs()
+                  } else if (item.testTag == "nitnem_sahib_button") {
                     onNavigateToNitnem()
                   } else if (item.testTag == "search_gurbani_button") {
                     onNavigateToSearch()
@@ -668,6 +711,7 @@ fun HomeMenuItem(
 fun HomeScreenPreview() {
   MyApplicationTheme {
     HomeScreen(
+      onNavigateToSggs = {},
       onNavigateToNitnem = {},
       onNavigateToSearch = {},
       onNavigateToBookmarks = {},
@@ -715,6 +759,274 @@ fun TopAppBar(
       ),
       modifier = Modifier.testTag("app_bar_title")
     )
+  }
+}
+
+fun convertToGurmukhiNumeral(number: Int): String {
+  val gurmukhiDigits = charArrayOf('੦', '੧', '੨', '੩', '੪', '੫', '੬', '੭', '੮', '੯')
+  val sb = StringBuilder()
+  val str = number.toString()
+  for (ch in str) {
+    if (ch in '0'..'9') {
+      sb.append(gurmukhiDigits[ch - '0'])
+    } else {
+      sb.append(ch)
+    }
+  }
+  return sb.toString()
+}
+
+@Composable
+fun SggsScreen(
+  onBack: () -> Unit,
+  onNavigateToBani: (String) -> Unit
+) {
+  var visible by remember { mutableStateOf(false) }
+  var angSearchQuery by remember { mutableStateOf("") }
+
+  LaunchedEffect(Unit) {
+    visible = true
+  }
+
+  val filteredAngs = remember(angSearchQuery) {
+    val queryNum = angSearchQuery.filter { it.isDigit() }.toIntOrNull()
+    if (queryNum != null) {
+      listOf(queryNum.coerceIn(1, 1430))
+    } else {
+      (1..1430).toList()
+    }
+  }
+
+  Scaffold(
+    modifier = Modifier
+      .fillMaxSize()
+      .testTag("sggs_screen_scaffold"),
+    containerColor = Color.White
+  ) { innerPadding ->
+    Column(
+      modifier = Modifier
+        .fillMaxSize()
+        .padding(innerPadding)
+        .padding(horizontal = 20.dp)
+    ) {
+      TopAppBar(
+        title = "📖 ਸ਼੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ",
+        onBack = onBack,
+        modifier = Modifier.padding(top = 8.dp)
+      )
+
+      Card(
+        colors = CardDefaults.cardColors(containerColor = Slate50),
+        border = BorderStroke(1.dp, Slate200),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(vertical = 8.dp)
+      ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+          Text(
+            text = "ਅੰਗ ਨੰਬਰ ਤੇ ਜਾਓ (1 - 1430)",
+            style = MaterialTheme.typography.labelLarge.copy(
+              fontWeight = FontWeight.Bold,
+              color = TextMedium
+            ),
+            modifier = Modifier.padding(bottom = 6.dp)
+          )
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            OutlinedTextField(
+              value = angSearchQuery,
+              onValueChange = { input ->
+                val digits = input.filter { it.isDigit() }
+                if (digits.isEmpty() || (digits.toIntOrNull() ?: 0) in 1..1430) {
+                  angSearchQuery = digits
+                }
+              },
+              placeholder = { Text("ਉਦਾਹਰਨ: 1, 262, 1430", fontSize = 13.sp, color = TextGray) },
+              singleLine = true,
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Go),
+              keyboardActions = KeyboardActions(onGo = {
+                val targetAng = angSearchQuery.toIntOrNull() ?: 1
+                onNavigateToBani("sggs_ang_$targetAng")
+              }),
+              modifier = Modifier
+                .weight(1f)
+                .testTag("sggs_ang_input_field"),
+              colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White,
+                focusedIndicatorColor = SaffronPrimary,
+                unfocusedIndicatorColor = Slate200
+              ),
+              shape = RoundedCornerShape(12.dp)
+            )
+
+            Button(
+              onClick = {
+                val targetAng = angSearchQuery.toIntOrNull() ?: 1
+                onNavigateToBani("sggs_ang_$targetAng")
+              },
+              colors = ButtonDefaults.buttonColors(containerColor = SaffronPrimary, contentColor = Color.White),
+              shape = RoundedCornerShape(12.dp),
+              modifier = Modifier
+                .height(52.dp)
+                .testTag("sggs_go_button")
+            ) {
+              Text("ਪੜ੍ਹੋ 📖", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
+          }
+
+          Spacer(modifier = Modifier.height(10.dp))
+          Text(
+            text = "ਮੁੱਖ ਅੰਗ ਸ਼ਾਰਟਕੱਟ:",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextGray
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(vertical = 2.dp)
+          ) {
+            val shortcuts = listOf(
+              "ਅੰਗ ੧ (ਜਪੁਜੀ ਸਾਹਿਬ)" to 1,
+              "ਅੰਗ ੯ (ਸੋ ਦਰੁ)" to 9,
+              "ਅੰਗ ੧੨ (ਸੋ ਪੁਰਖੁ)" to 12,
+              "ਅੰਗ ੨੬੨ (ਸੁਖਮਨੀ ਸਾਹਿਬ)" to 262,
+              "ਅੰਗ ੯੧੭ (ਅਨੰਦੁ ਸਾਹਿਬ)" to 917,
+              "ਅੰਗ ੧੪੨੬ (ਸਲੋਕ ਮਹਲਾ ੯)" to 1426
+            )
+            items(shortcuts) { (label, ang) ->
+              Box(
+                modifier = Modifier
+                  .clip(RoundedCornerShape(20.dp))
+                  .background(SaffronLight)
+                  .border(1.dp, SaffronBorder, RoundedCornerShape(20.dp))
+                  .clickable { onNavigateToBani("sggs_ang_$ang") }
+                  .padding(horizontal = 10.dp, vertical = 6.dp)
+              ) {
+                Text(
+                  text = label,
+                  fontSize = 11.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = TextMedium
+                )
+              }
+            }
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(4.dp))
+
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Text(
+          text = "ਸੰਪੂਰਨ ੧੪੩੦ ਅੰਗ (All 1430 Angs)",
+          style = MaterialTheme.typography.titleMedium.copy(
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            color = TextMedium
+          )
+        )
+        Text(
+          text = "${filteredAngs.size} ਅੰਗ",
+          fontSize = 12.sp,
+          color = TextGray,
+          fontWeight = FontWeight.SemiBold
+        )
+      }
+
+      AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = spring()) + slideInVertically(
+          initialOffsetY = { 40 },
+          animationSpec = spring()
+        ),
+        modifier = Modifier.weight(1f)
+      ) {
+        LazyColumn(
+          modifier = Modifier
+            .fillMaxSize()
+            .testTag("sggs_angs_list"),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+          contentPadding = PaddingValues(vertical = 8.dp)
+        ) {
+          items(filteredAngs, key = { it }) { angNum ->
+            val gurmukhiNumeral = convertToGurmukhiNumeral(angNum)
+            Card(
+              onClick = { onNavigateToBani("sggs_ang_$angNum") },
+              colors = CardDefaults.cardColors(containerColor = Slate50),
+              border = BorderStroke(1.dp, Slate200),
+              shape = RoundedCornerShape(16.dp),
+              modifier = Modifier
+                .fillMaxWidth()
+                .testTag("ang_item_$angNum")
+            ) {
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+              ) {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                  Box(
+                    modifier = Modifier
+                      .size(42.dp)
+                      .clip(CircleShape)
+                      .background(SaffronLight)
+                      .border(1.dp, SaffronBorder, CircleShape),
+                    contentAlignment = Alignment.Center
+                  ) {
+                    Text(
+                      text = gurmukhiNumeral,
+                      fontSize = 15.sp,
+                      fontWeight = FontWeight.Bold,
+                      color = SaffronPrimary
+                    )
+                  }
+
+                  Column {
+                    Text(
+                      text = "ਅੰਗ $gurmukhiNumeral",
+                      style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = TextMedium
+                      )
+                    )
+                    Text(
+                      text = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ • Ang $angNum",
+                      fontSize = 12.sp,
+                      color = TextGray
+                    )
+                  }
+                }
+
+                Text(
+                  text = "ਅੱਗੇ ➔",
+                  fontSize = 13.sp,
+                  fontWeight = FontWeight.Bold,
+                  color = SaffronPrimary
+                )
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
 
@@ -949,13 +1261,31 @@ fun BaniDetailScreen(
   val lineSpacingMultiplier = settingsState.lineSpacing
   val lineHeight = fontSize * lineSpacingMultiplier
 
+  val initialAngNum = remember(baniName) {
+    if (baniName.startsWith("sggs_ang_") || baniName.contains("ਅੰਗ")) {
+      baniName.filter { it.isDigit() }.toIntOrNull() ?: 1
+    } else null
+  }
+  var activeAngNum by remember(baniName) { mutableStateOf(initialAngNum) }
+
   var sggsVerses by remember { mutableStateOf<List<Verse>>(emptyList()) }
   var dynamicBaniTitle by remember { mutableStateOf(baniName) }
+  var isSggsLoading by remember(baniName, activeAngNum) { mutableStateOf(activeAngNum != null || baniName.startsWith("sggs_shabad_")) }
+  var sggsErrorMessage by remember(baniName, activeAngNum) { mutableStateOf<String?>(null) }
 
-  val bani = remember(baniName, dynamicBaniTitle, sggsVerses) {
+  val effectiveFileName = remember(baniName, activeAngNum) {
+    if (activeAngNum != null) {
+      "sggs_ang_$activeAngNum"
+    } else if (baniName.startsWith("sggs_shabad_")) {
+      baniName
+    } else {
+      getBaniFileName(baniName)
+    }
+  }
+
+  val bani = remember(baniName, dynamicBaniTitle, sggsVerses, effectiveFileName) {
     if (sggsVerses.isNotEmpty()) {
-      val parsedAng = baniName.filter { it.isDigit() }.ifEmpty { "1" }
-      Bani("sggs_shabad_$parsedAng", dynamicBaniTitle, sggsVerses)
+      Bani(effectiveFileName, dynamicBaniTitle, sggsVerses)
     } else {
       val fileName = getBaniFileName(baniName)
       if (fileName.isNotEmpty()) {
@@ -966,56 +1296,81 @@ fun BaniDetailScreen(
     }
   }
 
-  LaunchedEffect(baniName) {
-    if (sggsVerses.isEmpty()) {
+  LaunchedEffect(baniName, activeAngNum) {
+    sggsVerses = emptyList()
+    sggsErrorMessage = null
+    isSggsLoading = activeAngNum != null || baniName.startsWith("sggs_shabad_")
+    if (activeAngNum != null || baniName.startsWith("sggs_shabad_")) {
       try {
         withContext(Dispatchers.IO) {
-          val dao = SggsDatabase.getDatabase(context).sggsDao()
-          if (baniName.startsWith("sggs_shabad_")) {
-            val shabadId = baniName.removePrefix("sggs_shabad_")
-            val lineEntities = dao.getShabadByShabadId(shabadId)
-            if (lineEntities.isNotEmpty()) {
-              val firstLine = lineEntities.first()
-              val raagSuffix = if (firstLine.raag.isNotEmpty()) " • ${firstLine.raag}" else ""
-              val title = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${firstLine.source_page})$raagSuffix"
-              val verses = lineEntities.mapIndexed { idx, lineEntity ->
+          val sggsDb = SggsDatabase.getInstance(context)
+          if (activeAngNum != null) {
+            val currentAng = activeAngNum!!
+            val gurmukhiNumeral = convertToGurmukhiNumeral(currentAng)
+            withContext(Dispatchers.Main) {
+              dynamicBaniTitle = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ $gurmukhiNumeral)"
+            }
+            val entities = sggsDb.searchByAng(currentAng)
+            android.util.Log.d("BaniDetailScreen", "searchByAng($currentAng) returned ${entities.size} rows")
+            if (entities.isNotEmpty()) {
+              val verses = entities.mapIndexed { idx, item ->
                 Verse(
-                  id = lineEntity.id.toIntOrNull() ?: lineEntity.id.hashCode(),
+                  id = item.line.id.toIntOrNull() ?: item.line.id.hashCode(),
                   index = idx,
-                  line = lineEntity.gurmukhi,
-                  translation = lineEntity.translation
+                  line = convertGurbaniAkharToUnicode(item.line.gurmukhi),
+                  translation = item.translation ?: item.line.translation,
+                  punjabiTranslation = item.punjabiTranslation ?: item.line.punjabiTranslation
+                )
+              }
+              withContext(Dispatchers.Main) {
+                sggsVerses = verses
+                isSggsLoading = false
+              }
+            } else {
+              withContext(Dispatchers.Main) {
+                isSggsLoading = false
+                sggsErrorMessage = "ਅੰਗ $currentAng ਲਈ ਕੋਈ ਬਾਣੀ ਨਹੀਂ ਮਿਲੀ।"
+              }
+            }
+          } else if (baniName.startsWith("sggs_shabad_")) {
+            val shabadId = baniName.removePrefix("sggs_shabad_")
+            val lineEntities = sggsDb.getShabadByShabadId(shabadId)
+            android.util.Log.d("BaniDetailScreen", "getShabadByShabadId($shabadId) returned ${lineEntities.size} rows")
+            if (lineEntities.isNotEmpty()) {
+              val firstLine = lineEntities.first().line
+              val raagSuffix = if (firstLine.raag.isNotEmpty()) " • ${firstLine.raag}" else ""
+              val title = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${convertToGurmukhiNumeral(firstLine.source_page)})$raagSuffix"
+              val verses = lineEntities.mapIndexed { idx, item ->
+                Verse(
+                  id = item.line.id.toIntOrNull() ?: item.line.id.hashCode(),
+                  index = idx,
+                  line = convertGurbaniAkharToUnicode(item.line.gurmukhi),
+                  translation = item.translation ?: item.line.translation,
+                  punjabiTranslation = item.punjabiTranslation ?: item.line.punjabiTranslation
                 )
               }
               withContext(Dispatchers.Main) {
                 dynamicBaniTitle = title
                 sggsVerses = verses
+                isSggsLoading = false
               }
-            }
-          } else if (baniName.startsWith("sggs_ang_") || baniName.contains("ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ") || baniName.contains("ਅੰਗ")) {
-            val parsedAng = baniName.filter { it.isDigit() }.toIntOrNull() ?: 1
-            withContext(Dispatchers.Main) {
-              dynamicBaniTitle = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ $parsedAng)"
-            }
-            dao.getLinesByAng(parsedAng).collect { entities ->
-              if (entities.isNotEmpty()) {
-                val verses = entities.mapIndexed { idx, e ->
-                  Verse(
-                    id = e.id.toIntOrNull() ?: e.id.hashCode(),
-                    index = idx,
-                    line = e.gurmukhi,
-                    translation = e.translation
-                  )
-                }
-                withContext(Dispatchers.Main) {
-                  sggsVerses = verses
-                }
+            } else {
+              withContext(Dispatchers.Main) {
+                isSggsLoading = false
+                sggsErrorMessage = "ਸ਼ਬਦ $shabadId ਡਾਟਾਬੇਸ ਵਿੱਚ ਨਹੀਂ ਮਿਲਿਆ।"
               }
             }
           }
         }
       } catch (e: Exception) {
-        e.printStackTrace()
+        android.util.Log.e("BaniDetailScreen", "Error loading SGGS content: ${e.message}", e)
+        withContext(Dispatchers.Main) {
+          isSggsLoading = false
+          sggsErrorMessage = "ਤਰੁੱਟੀ: ${e.localizedMessage ?: e.message}"
+        }
       }
+    } else {
+      isSggsLoading = false
     }
   }
 
@@ -1027,18 +1382,25 @@ fun BaniDetailScreen(
   }
   val lastReadIndex by lastReadPosFlow.collectAsStateWithLifecycle(initialValue = 0)
 
-  // Scroll to highlightIndex if present, otherwise restore last read position
-  var hasInitialScrolled by remember(bani.fileName) { mutableStateOf(false) }
-  LaunchedEffect(bani.fileName, highlightIndex, lastReadIndex) {
+  var isNavigatedByButtons by remember { mutableStateOf(false) }
+  val activeHighlightIndex = if (!isNavigatedByButtons && (activeAngNum == null || activeAngNum == initialAngNum)) highlightIndex else null
+
+  LaunchedEffect(activeAngNum) {
+    if (activeAngNum != null) {
+      listState.scrollToItem(0)
+    }
+  }
+
+  // Scroll to activeHighlightIndex if present, otherwise for non-Ang banis restore last read position or scroll to top (0)
+  var hasInitialScrolled by remember(bani.fileName, activeHighlightIndex) { mutableStateOf(false) }
+  LaunchedEffect(bani.fileName, bani.verses.size, activeHighlightIndex, lastReadIndex) {
     if (!hasInitialScrolled && bani.verses.isNotEmpty()) {
       val targetIndex = when {
-        highlightIndex != null && highlightIndex >= 0 && highlightIndex < bani.verses.size -> highlightIndex
-        lastReadIndex > 0 && lastReadIndex < bani.verses.size -> lastReadIndex
+        activeHighlightIndex != null && activeHighlightIndex >= 0 && activeHighlightIndex < bani.verses.size -> activeHighlightIndex
+        activeAngNum == null && lastReadIndex > 0 && lastReadIndex < bani.verses.size -> lastReadIndex
         else -> 0
       }
-      if (targetIndex > 0) {
-        listState.scrollToItem(targetIndex)
-      }
+      listState.scrollToItem(targetIndex)
       hasInitialScrolled = true
     }
   }
@@ -1068,10 +1430,118 @@ fun BaniDetailScreen(
         .padding(horizontal = 20.dp)
     ) {
       TopAppBar(
-        title = if (dynamicBaniTitle.isNotEmpty()) dynamicBaniTitle else baniName,
+        title = if (dynamicBaniTitle.isNotEmpty()) dynamicBaniTitle else (com.example.util.GurbaniUtils.cleanUserFriendlyTitle(baniName).ifEmpty { "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ" }),
         onBack = onBack,
         modifier = Modifier.padding(top = 8.dp)
       )
+
+      if (activeAngNum != null) {
+        val currentAng = activeAngNum!!
+        var showAngDialog by remember { mutableStateOf(false) }
+
+        if (showAngDialog) {
+          var dialogInput by remember { mutableStateOf("$currentAng") }
+          AlertDialog(
+            onDismissRequest = { showAngDialog = false },
+            title = { Text("ਅੰਗ ਚੁਣੋ (1 - 1430)", fontWeight = FontWeight.Bold) },
+            text = {
+              OutlinedTextField(
+                value = dialogInput,
+                onValueChange = { input ->
+                  val digits = input.filter { it.isDigit() }
+                  if (digits.isEmpty() || (digits.toIntOrNull() ?: 0) in 1..1430) {
+                    dialogInput = digits
+                  }
+                },
+                label = { Text("ਅੰਗ ਨੰਬਰ") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+              )
+            },
+            confirmButton = {
+              Button(
+                onClick = {
+                  val num = dialogInput.toIntOrNull()
+                  if (num != null && num in 1..1430) {
+                    isNavigatedByButtons = true
+                    activeAngNum = num
+                  }
+                  showAngDialog = false
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = SaffronPrimary)
+              ) {
+                Text("ਜਾਓ 📖", color = Color.White)
+              }
+            },
+            dismissButton = {
+              TextButton(onClick = { showAngDialog = false }) {
+                Text("ਰੱਦ ਕਰੋ", color = TextGray)
+              }
+            }
+          )
+        }
+
+        Card(
+          colors = CardDefaults.cardColors(containerColor = SaffronLight),
+          border = BorderStroke(1.dp, SaffronBorder),
+          shape = RoundedCornerShape(16.dp),
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .testTag("sggs_ang_navigation_bar")
+        ) {
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            TextButton(
+              onClick = {
+                if (currentAng > 1) {
+                  isNavigatedByButtons = true
+                  activeAngNum = currentAng - 1
+                }
+              },
+              enabled = currentAng > 1,
+              modifier = Modifier.testTag("prev_ang_button")
+            ) {
+              Text("⏮️ ਪਿਛਲਾ", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (currentAng > 1) SaffronDark else TextGray)
+            }
+
+            Box(
+              modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White)
+                .border(1.dp, SaffronPrimary, RoundedCornerShape(12.dp))
+                .clickable { showAngDialog = true }
+                .padding(horizontal = 14.dp, vertical = 6.dp)
+                .testTag("current_ang_badge")
+            ) {
+              Text(
+                text = "ਅੰਗ ${convertToGurmukhiNumeral(currentAng)} / ੧੪੩੦ ▾",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = SaffronDark
+              )
+            }
+
+            TextButton(
+              onClick = {
+                if (currentAng < 1430) {
+                  isNavigatedByButtons = true
+                  activeAngNum = currentAng + 1
+                }
+              },
+              enabled = currentAng < 1430,
+              modifier = Modifier.testTag("next_ang_button")
+            ) {
+              Text("ਅਗਲਾ ⏭️", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (currentAng < 1430) SaffronDark else TextGray)
+            }
+          }
+        }
+      }
 
       if (bani.verses.isEmpty()) {
         Column(
@@ -1121,15 +1591,34 @@ fun BaniDetailScreen(
                 modifier = Modifier.padding(bottom = 12.dp)
               )
 
-              Text(
-                text = "ਇਸ ਪਵਿੱਤਰ ਬਾਣੀ ਦਾ ਪਾਠ ਅਗਲੇ ਅਪਡੇਟ ਵਿੱਚ ਜਲਦੀ ਹੀ ਉਪਲਬਧ ਕਰਵਾਇਆ ਜਾਵੇਗਾ।",
-                style = MaterialTheme.typography.bodyMedium.copy(
-                  color = TextGray,
-                  fontSize = 14.sp,
-                  textAlign = TextAlign.Center,
-                  lineHeight = 20.sp
+              if (isSggsLoading) {
+                CircularProgressIndicator(
+                  color = SaffronPrimary,
+                  modifier = Modifier
+                    .size(36.dp)
+                    .padding(bottom = 12.dp)
                 )
-              )
+
+                Text(
+                  text = "ਬਾਣੀ ਲੋਡ ਹੋ ਰਹੀ ਹੈ...",
+                  style = MaterialTheme.typography.bodyMedium.copy(
+                    color = TextGray,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                  )
+                )
+              } else {
+                Text(
+                  text = sggsErrorMessage ?: "ਇਸ ਬਾਣੀ ਦਾ ਪਾਠ ਉਪਲਬਧ ਨਹੀਂ ਹੈ।",
+                  style = MaterialTheme.typography.bodyMedium.copy(
+                    color = TextGray,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                  )
+                )
+              }
             }
           }
         }
@@ -1144,7 +1633,7 @@ fun BaniDetailScreen(
           contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp)
         ) {
           itemsIndexed(bani.verses, key = { index, _ -> index }) { index, verse ->
-            val isHighlighted = index == highlightIndex
+            val isHighlighted = index == activeHighlightIndex
             val isBookmarked = bookmarks.any { it.fileName == bani.fileName && it.lineIndex == index }
 
             Card(
@@ -1203,39 +1692,44 @@ fun BaniDetailScreen(
                         .testTag("verse_translation_$index")
                     )
                   }
+
+                  if (verse.punjabiTranslation.isNotEmpty() && settingsState.showPunjabiTranslation) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Punjabi Translation line
+                    Text(
+                      text = verse.punjabiTranslation,
+                      style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 13.sp,
+                        color = TextGray,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                      ),
+                      modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("verse_punjabi_translation_$index")
+                    )
+                  }
                 }
 
-                // Action buttons: Copy, Share, Bookmark
+                // Action buttons: Share, Bookmark
                 Row(
                   modifier = Modifier
                     .align(Alignment.TopEnd),
                   horizontalArrangement = Arrangement.spacedBy(2.dp),
                   verticalAlignment = Alignment.CenterVertically
                 ) {
-                  // Copy Verse Button
-                  IconButton(
-                    onClick = {
-                      val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                      val textToCopy = if (verse.translation.isNotEmpty() && settingsState.showTranslation) "${verse.line}\n${verse.translation}" else verse.line
-                      val clip = android.content.ClipData.newPlainText("Gurbani Verse", textToCopy)
-                      clipboard.setPrimaryClip(clip)
-                      Toast.makeText(context, "ਤੁਕ ਕੋਪੀ ਹੋ ਗਈ॥", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier
-                      .size(32.dp)
-                      .testTag("copy_icon_$index")
-                  ) {
-                    Text(text = "📋", fontSize = 15.sp)
-                  }
-
                   // Share Verse Button
                   IconButton(
                     onClick = {
-                      val shareText = if (verse.translation.isNotEmpty() && settingsState.showTranslation) {
-                        "${verse.line}\n${verse.translation}\n\n— ਗੁਰਬਾਣੀ ਖੋਜ ($baniName)"
-                      } else {
-                        "${verse.line}\n\n— ਗੁਰਬਾਣੀ ਖੋਜ ($baniName)"
+                      val sb = StringBuilder(verse.line)
+                      if (verse.translation.isNotEmpty() && settingsState.showTranslation) {
+                        sb.append("\n").append(verse.translation)
                       }
+                      if (verse.punjabiTranslation.isNotEmpty() && settingsState.showPunjabiTranslation) {
+                        sb.append("\n").append(verse.punjabiTranslation)
+                      }
+                      sb.append("\n\n— ਗੁਰਬਾਣੀ ਖੋਜ ($baniName)")
+                      val shareText = sb.toString()
                       val shareIntent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_TEXT, shareText)
@@ -1252,8 +1746,9 @@ fun BaniDetailScreen(
                   // Bookmark Icon Button
                   IconButton(
                     onClick = {
+                      val cleanBaniTitle = if (dynamicBaniTitle.isNotBlank() && !com.example.util.GurbaniUtils.isInternalId(dynamicBaniTitle)) dynamicBaniTitle else bani.title
                       viewModel.toggleBookmark(
-                        baniName = baniName,
+                        baniName = cleanBaniTitle,
                         fileName = bani.fileName,
                         lineIndex = index,
                         verseLine = verse.line,
@@ -1351,59 +1846,126 @@ fun convertGurmukhiToGurbaniAkharAscii(input: String): String {
   return sb.toString()
 }
 
+fun String.toGurmukhiDigits(): String {
+  if (this.isEmpty()) return this
+  val sb = StringBuilder()
+  for (ch in this) {
+    val converted = when (ch) {
+      '0' -> '੦'
+      '1' -> '੧'
+      '2' -> '੨'
+      '3' -> '੩'
+      '4' -> '੪'
+      '5' -> '੫'
+      '6' -> '੬'
+      '7' -> '੭'
+      '8' -> '੮'
+      '9' -> '੯'
+      else -> ch
+    }
+    sb.append(converted)
+  }
+  return sb.toString()
+}
+
 fun convertGurbaniAkharToUnicode(text: String): String {
   if (text.isEmpty()) return text
-  if (!text.any { it in 'A'..'Z' || it in 'a'..'z' || it in "<>`^[]" }) return text
+
+  if (text.any { it in '\u0A00'..'\u0A7F' }) {
+    var res = text
+      .replace("R", "੍ਰ")
+      .replace("®", "੍ਰ")
+      .replace("Ø", "")
+      .replace("ˆ", "")
+      .replace("ø", "")
+      .replace("0", "")
+    res = res.replace("ਿ੍ਰ", "੍ਰਿ").replace("ਿR", "੍ਰਿ")
+    return res
+  }
+
+  var processedText = text.replace(Regex("\\]\\d+\\]?"), "]")
+  if (processedText.startsWith("] ")) {
+    processedText = processedText.substring(2)
+  } else if (processedText.startsWith("]")) {
+    processedText = processedText.substring(1)
+  }
+
+  processedText = processedText.replace("Ø", "").replace("ˆ", "").replace("ø", "")
 
   val mapping = mapOf(
     "<>" to "ੴ",
-    "A`" to "ਅੰ", "Aw" to "ਆ", "ie" to "ਇ", "eI" to "ਈ", "au" to "ਉ", "aU" to "ਊ", "ey" to "ਏ", "AY" to "ਐ", "AO" to "ਔ",
-    "a" to "ੳ", "A" to "ਅ", "e" to "ੲ", "s" to "ਸ", "h" to "ਹ",
-    "k" to "ਕ", "K" to "ਖ", "g" to "ਗ", "G" to "ਘ", "q" to "ਤ",
-    "c" to "ਚ", "C" to "ਛ", "j" to "ਜ", "J" to "ਝ", "Q" to "ਥ",
-    "t" to "ਟ", "T" to "ਠ", "d" to "ਦ", "D" to "ਧ", "x" to "ਣ", "n" to "ਨ",
-    "p" to "ਪ", "P" to "ਫ", "b" to "ਬ", "B" to "ਭ", "m" to "ਮ",
-    "y" to "ਯ", "r" to "ਰ", "l" to "ਲ", "v" to "ਵ", "R" to "ੜ",
-    "S" to "ਸ਼", "X" to "ਖ਼", "z" to "ਜ਼", "f" to "ਫ਼", "L" to "ਲ਼",
-    "w" to "ਾ", "I" to "ੀ", "u" to "ੁ", "U" to "ੂ", "y" to "ੇ", "Y" to "ੈ", "o" to "ੋ", "O" to "ੌ",
-    "M" to "ੰ", "N" to "ੰ", "`" to "ੱ", "^" to "ੵ", "[" to "।", "]" to "॥"
+    "A`" to "ਅੰ", "Aw" to "ਆ", "ie" to "ਇ", "eI" to "ਈ", "au" to "ਉ", "aU" to "ਊ", "ey" to "ਏ", "AY" to "ਐ", "AO" to "ਔ", "Eu" to "ਉ",
+    "a" to "ੳ", "A" to "ਅ", "e" to "ੲ", "E" to "ਓ", "s" to "ਸ", "S" to "ਸ਼", "h" to "ਹ",
+    "k" to "ਕ", "K" to "ਖ", "g" to "ਗ", "G" to "ਘ", "c" to "ਚ", "C" to "ਛ", "j" to "ਜ", "J" to "ਝ",
+    "t" to "ਟ", "T" to "ਠ", "f" to "ਡ", "F" to "ਢ", "x" to "ਣ", "q" to "ਤ", "Q" to "ਥ",
+    "d" to "ਦ", "D" to "ਧ", "n" to "ਨ", "p" to "ਪ", "P" to "ਫ", "b" to "ਬ", "B" to "ਭ", "m" to "ਮ",
+    "r" to "ਰ", "l" to "ਲ", "v" to "ਵ", "R" to "੍ਰ", "®" to "੍ਰ", "V" to "ੜ",
+    "z" to "ਜ਼", "X" to "ਖ਼", "L" to "ਲ਼", "H" to "੍ਹ", "Z" to "ਗ਼", "&" to "ਫ਼",
+    "w" to "ਾ", "W" to "ਾਂ", "I" to "ੀ", "u" to "ੁ", "U" to "ੂ", "y" to "ੇ", "Y" to "ੈ", "o" to "ੋ", "O" to "ੌ",
+    "M" to "ੰ", "N" to "ੰ", "`" to "ੱ", "^" to "ੵ", "~" to "ੵ", "@" to "ੑ", "_" to "਼",
+    "[" to "।", "]" to "॥",
+    "0" to "੦", "1" to "੧", "2" to "੨", "3" to "੩", "4" to "੪", "5" to "੫", "6" to "੬", "7" to "੭", "8" to "੮", "9" to "੯"
   )
 
-  val words = text.split(" ")
+  val words = processedText.split(" ")
   val resWords = mutableListOf<String>()
   for (w in words) {
     if (w.isEmpty()) {
       resWords.add("")
       continue
     }
-    val convertedChars = StringBuilder()
+    val sb = StringBuilder()
     var i = 0
     while (i < w.length) {
+      val ch = w[i]
+      if (ch == ';' || ch == '.') {
+        i++
+        continue
+      }
       if (i + 1 < w.length && mapping.containsKey(w.substring(i, i + 2))) {
-        convertedChars.append(mapping[w.substring(i, i + 2)])
+        sb.append(mapping[w.substring(i, i + 2)])
         i += 2
-      } else if (w[i] == 'i') {
+      } else if (ch == 'i') {
         i++
         if (i < w.length) {
-          val nextSub = if (i + 1 < w.length && mapping.containsKey(w.substring(i, i + 2))) w.substring(i, i + 2) else w[i].toString()
+          var nextSub = if (i + 1 < w.length && mapping.containsKey(w.substring(i, i + 2))) w.substring(i, i + 2) else w[i].toString()
+          var extraSubscript = ""
+          val nextEndIdx = i + nextSub.length
+          if (nextEndIdx < w.length && (w[nextEndIdx] == 'R' || w[nextEndIdx] == '®' || w[nextEndIdx] == 'H' || w[nextEndIdx] == '^' || w[nextEndIdx] == '~' || w[nextEndIdx] == '@')) {
+            extraSubscript = mapping[w[nextEndIdx].toString()] ?: ""
+          }
           val convertedNext = mapping[nextSub] ?: nextSub
-          convertedChars.append(convertedNext)
-          convertedChars.append('ਿ')
-          i += nextSub.length
+          sb.append(convertedNext)
+          if (extraSubscript.isNotEmpty()) {
+            sb.append(extraSubscript)
+          }
+          sb.append('ਿ')
+          i += nextSub.length + (if (extraSubscript.isNotEmpty()) 1 else 0)
         } else {
-          convertedChars.append('ਿ')
+          sb.append('ਿ')
         }
-      } else if (mapping.containsKey(w[i].toString())) {
-        convertedChars.append(mapping[w[i].toString()])
+      } else if (mapping.containsKey(ch.toString())) {
+        sb.append(mapping[ch.toString()])
         i++
       } else {
-        convertedChars.append(w[i])
+        if (ch !in 'a'..'z' && ch !in 'A'..'Z') {
+          sb.append(ch)
+        }
         i++
       }
     }
-    resWords.add(convertedChars.toString())
+    resWords.add(sb.toString())
   }
-  return resWords.joinToString(" ")
+  var result = resWords.joinToString(" ").replace(Regex("\\s+"), " ").trim()
+  result = result
+    .replace("R", "੍ਰ")
+    .replace("®", "੍ਰ")
+    .replace("Ø", "")
+    .replace("ˆ", "")
+    .replace("ø", "")
+    .replace("0", "")
+    .replace("ਿ੍ਰ", "੍ਰਿ")
+  return result
 }
 
 fun gurmukhiCharToRoman(ch: Char): Char {
@@ -1825,11 +2387,11 @@ fun SearchScreen(
       val parsedAng = q.replace("ਅੰਗ", "").replace("ang", "", ignoreCase = true).trim().toIntOrNull()
 
       try {
-        val dao = SggsDatabase.getDatabase(context).sggsDao()
-        val dbLines = mutableListOf<LineEntity>()
+        val sggsDb = SggsDatabase.getInstance(context)
+        val rawItems = mutableListOf<com.example.data.LineWithTranslation>()
 
         if (parsedAng != null && (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.ANG)) {
-          dbLines.addAll(dao.searchByAng(parsedAng))
+          rawItems.addAll(sggsDb.searchByAng(parsedAng))
         }
 
         if (cleanQ.isNotEmpty()) {
@@ -1837,29 +2399,45 @@ fun SearchScreen(
           val fullTextAsciiQ = convertGurmukhiToGurbaniAkharAscii(q.trim())
           android.util.Log.d("GurbaniSearch", "Executing search: raw='$cleanQ', ascii='$asciiQ' on table 'lines', column 'first_letters'")
           if (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.FIRST_LETTER) {
-            dbLines.addAll(dao.searchByFirstLetters(cleanQ, asciiQ))
+            rawItems.addAll(sggsDb.searchByFirstLetters(cleanQ, asciiQ))
           }
           if (activeFilterTab == SearchFilterType.ALL || activeFilterTab == SearchFilterType.FULL_TEXT) {
-            dbLines.addAll(dao.searchByFullText(q.trim(), fullTextAsciiQ))
+            rawItems.addAll(sggsDb.searchByFullText(q.trim(), fullTextAsciiQ))
+          }
+        }
+
+        val dbLines = rawItems.map { item ->
+          item.line.apply {
+            translation = item.translation ?: ""
+            punjabiTranslation = item.punjabiTranslation ?: ""
           }
         }
 
         val uniqueLines = dbLines.distinctBy { it.id }
         val asciiQ = convertGurmukhiToGurbaniAkharAscii(cleanQ)
+        // Cache page lines for accurate highlight index computation
+        val pageLinesCache = mutableMapOf<Int, List<com.example.data.LineWithTranslation>>()
+
         uniqueLines.forEach { lineEntity ->
+          val angNum = lineEntity.source_page
+          val angLines = pageLinesCache.getOrPut(angNum) { sggsDb.searchByAng(angNum) }
+          val idxOnAng = angLines.indexOfFirst { it.line.id == lineEntity.id }.let { if (it >= 0) it else 0 }
+
           val verse = Verse(
             id = lineEntity.id.toIntOrNull() ?: lineEntity.id.hashCode(),
-            index = lineEntity.source_line,
+            index = idxOnAng,
             line = convertGurbaniAkharToUnicode(lineEntity.gurmukhi),
-            translation = lineEntity.translation
+            translation = lineEntity.translation,
+            punjabiTranslation = lineEntity.punjabiTranslation
           )
 
           val raagSuffix = if (lineEntity.raag.isNotEmpty()) " • ${lineEntity.raag}" else ""
           val titleText = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${lineEntity.source_page})$raagSuffix"
 
+          val fl = lineEntity.first_letters ?: ""
           val filterType = when {
             parsedAng != null && lineEntity.source_page == parsedAng -> SearchFilterType.ANG
-            cleanQ.isNotEmpty() && (lineEntity.first_letters.startsWith(cleanQ, ignoreCase = true) || lineEntity.first_letters.startsWith(asciiQ, ignoreCase = true)) -> SearchFilterType.FIRST_LETTER
+            cleanQ.isNotEmpty() && (fl.startsWith(cleanQ, ignoreCase = true) || fl.startsWith(asciiQ, ignoreCase = true)) -> SearchFilterType.FIRST_LETTER
             else -> SearchFilterType.FULL_TEXT
           }
 
@@ -2190,7 +2768,10 @@ fun SearchScreen(
             ) {
               itemsIndexed(searchResults) { index, result ->
                 Card(
-                  onClick = { onNavigateToBani(result.baniName, result.verse.index) },
+                  onClick = {
+                    val navTarget = if (result.fileName.isNotBlank()) result.fileName else result.baniName
+                    onNavigateToBani(navTarget, result.verse.index)
+                  },
                   colors = CardDefaults.cardColors(containerColor = Slate50),
                   border = BorderStroke(1.dp, Slate200),
                   shape = RoundedCornerShape(14.dp),
@@ -2274,6 +2855,18 @@ fun SearchScreen(
                       Spacer(modifier = Modifier.height(6.dp))
                       HighlightedText(
                         text = result.verse.translation,
+                        query = result.matchedQuery,
+                        highlightColor = SaffronPrimary.copy(alpha = 0.8f),
+                        textColor = TextGray,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal
+                      )
+                    }
+
+                    if (result.verse.punjabiTranslation.isNotEmpty() && settingsState?.showPunjabiTranslation == true) {
+                      Spacer(modifier = Modifier.height(6.dp))
+                      HighlightedText(
+                        text = result.verse.punjabiTranslation,
                         query = result.matchedQuery,
                         highlightColor = SaffronPrimary.copy(alpha = 0.8f),
                         textColor = TextGray,
@@ -2373,14 +2966,32 @@ fun BookmarksScreen(
   var searchQuery by remember { mutableStateOf("") }
   var showClearConfirmDialog by remember { mutableStateOf(false) }
 
-  val filteredBookmarks = remember(bookmarks, searchQuery) {
+  val resolvedMap = remember { mutableStateMapOf<Int, com.example.util.ResolvedBookmarkDisplay>() }
+
+  LaunchedEffect(bookmarks) {
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+      bookmarks.forEach { b ->
+        if (!resolvedMap.containsKey(b.id)) {
+          val res = com.example.util.GurbaniUtils.resolveBookmarkDisplay(b, context)
+          kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            resolvedMap[b.id] = res
+          }
+        }
+      }
+    }
+  }
+
+  val filteredBookmarks = remember(bookmarks, searchQuery, resolvedMap.toMap()) {
     if (searchQuery.isBlank()) {
       bookmarks
     } else {
-      bookmarks.filter {
-        it.verseLine.contains(searchQuery, ignoreCase = true) ||
-        it.baniName.contains(searchQuery, ignoreCase = true) ||
-        it.translation.contains(searchQuery, ignoreCase = true)
+      bookmarks.filter { b ->
+        val resolved = resolvedMap[b.id] ?: com.example.util.GurbaniUtils.resolveBookmarkDisplayFast(b)
+        b.verseLine.contains(searchQuery, ignoreCase = true) ||
+        b.translation.contains(searchQuery, ignoreCase = true) ||
+        resolved.title.contains(searchQuery, ignoreCase = true) ||
+        (resolved.subtitle != null && resolved.subtitle.contains(searchQuery, ignoreCase = true)) ||
+        resolved.badgeText.contains(searchQuery, ignoreCase = true)
       }
     }
   }
@@ -2630,8 +3241,13 @@ fun BookmarksScreen(
           contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)
         ) {
           itemsIndexed(filteredBookmarks, key = { _, b -> "${b.fileName}_${b.lineIndex}_${b.id}" }) { index, bookmark ->
+            val resolved = resolvedMap[bookmark.id] ?: com.example.util.GurbaniUtils.resolveBookmarkDisplayFast(bookmark)
+
             Card(
-              onClick = { onNavigateToBani(bookmark.baniName, bookmark.lineIndex) },
+              onClick = {
+                val navTarget = if (bookmark.fileName.isNotBlank() && (bookmark.fileName.startsWith("sggs_") || bookmark.fileName.endsWith(".json"))) bookmark.fileName else bookmark.baniName
+                onNavigateToBani(navTarget, bookmark.lineIndex)
+              },
               colors = CardDefaults.cardColors(containerColor = Slate50),
               border = BorderStroke(1.dp, Slate200),
               shape = RoundedCornerShape(16.dp),
@@ -2655,7 +3271,7 @@ fun BookmarksScreen(
                       .padding(horizontal = 10.dp, vertical = 4.dp)
                   ) {
                     Text(
-                      text = bookmark.baniName,
+                      text = resolved.badgeText,
                       style = MaterialTheme.typography.bodySmall.copy(
                         color = SaffronDark,
                         fontWeight = FontWeight.Bold,
@@ -2683,16 +3299,45 @@ fun BookmarksScreen(
                   }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
+                // Title (Mukhvak for SGGS, or Bani Name for Nitnem / Other)
                 HighlightedText(
-                  text = bookmark.verseLine,
+                  text = resolved.title,
                   query = searchQuery,
-                  textColor = TextMedium,
+                  textColor = SaffronDark,
                   highlightColor = SaffronPrimary,
                   fontSize = 16.sp,
-                  fontWeight = FontWeight.Bold
+                  fontWeight = FontWeight.Bold,
+                  modifier = Modifier.testTag("bookmark_title_$index")
                 )
+
+                if (resolved.subtitle != null) {
+                  Spacer(modifier = Modifier.height(2.dp))
+                  HighlightedText(
+                    text = resolved.subtitle,
+                    query = searchQuery,
+                    textColor = TextGray,
+                    highlightColor = SaffronPrimary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.testTag("bookmark_subtitle_$index")
+                  )
+                }
+
+                // If bookmarked verse line is distinct from the title (e.g. specific verse inside a shabad), show it
+                if (bookmark.verseLine.isNotBlank() && bookmark.verseLine.trim() != resolved.title.trim()) {
+                  Spacer(modifier = Modifier.height(8.dp))
+                  HighlightedText(
+                    text = bookmark.verseLine,
+                    query = searchQuery,
+                    textColor = TextMedium,
+                    highlightColor = SaffronPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.testTag("bookmark_verse_$index")
+                  )
+                }
 
                 if (bookmark.translation.isNotEmpty()) {
                   Spacer(modifier = Modifier.height(6.dp))

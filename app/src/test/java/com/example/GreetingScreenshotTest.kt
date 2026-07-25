@@ -24,6 +24,7 @@ class GreetingScreenshotTest {
     composeTestRule.setContent {
       MyApplicationTheme {
         HomeScreen(
+          onNavigateToSggs = {},
           onNavigateToNitnem = {},
           onNavigateToSearch = {},
           onNavigateToBookmarks = {},

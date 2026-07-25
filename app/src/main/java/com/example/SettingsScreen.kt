@@ -139,6 +139,18 @@ fun SettingsScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
+                            if (settingsState.showPunjabiTranslation) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "ਵਾਹਿਗੁਰੂ ਕੇਵਲ ਇਕ ਹੈ। ਸੱਚਾ ਹੈ ਉਸ ਦਾ ਨਾਮ, ਰਚਨਹਾਰ ਉਸ ਦੀ ਵਿਅਕਤੀ ਅਤੇ ਅਮਰ ਉਸ ਦਾ ਸਰੂਪ।",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 11.sp,
+                                        color = TextGray,
+                                        textAlign = TextAlign.Center
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
                     }
                 }
@@ -191,6 +203,48 @@ fun SettingsScreen(
                                     uncheckedTrackColor = Color.White
                                 ),
                                 modifier = Modifier.testTag("show_translation_switch")
+                            )
+                        }
+                    }
+                }
+
+                // Show Punjabi Translation Switch Option
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Slate50),
+                        border = BorderStroke(1.dp, Slate200),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("show_punjabi_translation_setting_card")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Show Punjabi Translation",
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextMedium,
+                                    fontSize = 15.sp
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Show or hide the Punjabi translation (ਟੀਕਾ/ਅਰਥ) below Gurbani.",
+                                    color = TextGray,
+                                    fontSize = 12.sp
+                                )
+                            }
+                            Switch(
+                                checked = settingsState.showPunjabiTranslation,
+                                onCheckedChange = { settingsManager.updateShowPunjabiTranslation(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = SaffronPrimary,
+                                    uncheckedThumbColor = Slate200,
+                                    uncheckedTrackColor = Color.White
+                                ),
+                                modifier = Modifier.testTag("show_punjabi_translation_switch")
                             )
                         }
                     }

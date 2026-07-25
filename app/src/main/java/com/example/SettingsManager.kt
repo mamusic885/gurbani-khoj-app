@@ -35,6 +35,7 @@ class SettingsManager(private val context: Context) {
         val KEEP_SCREEN_ON_KEY = booleanPreferencesKey("keep_screen_on")
         val FIRST_LAUNCH_KEY = booleanPreferencesKey("is_first_launch_done")
         val SHOW_TRANSLATION_KEY = booleanPreferencesKey("show_translation")
+        val SHOW_PUNJABI_TRANSLATION_KEY = booleanPreferencesKey("show_punjabi_translation")
     }
 
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -56,7 +57,8 @@ class SettingsManager(private val context: Context) {
                 vishramColor = prefs[VISHRAM_COLOR_KEY] ?: "#FF9933",
                 keepScreenOn = prefs[KEEP_SCREEN_ON_KEY] ?: false,
                 isFirstLaunchDone = prefs[FIRST_LAUNCH_KEY] ?: false,
-                showTranslation = prefs[SHOW_TRANSLATION_KEY] ?: true
+                showTranslation = prefs[SHOW_TRANSLATION_KEY] ?: true,
+                showPunjabiTranslation = prefs[SHOW_PUNJABI_TRANSLATION_KEY] ?: false
             )
         }
         .stateIn(
@@ -138,6 +140,16 @@ class SettingsManager(private val context: Context) {
             try {
                 context.settingsDataStore.edit { prefs ->
                     prefs[SHOW_TRANSLATION_KEY] = show
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun updateShowPunjabiTranslation(show: Boolean) {
+        scope.launch {
+            try {
+                context.settingsDataStore.edit { prefs ->
+                    prefs[SHOW_PUNJABI_TRANSLATION_KEY] = show
                 }
             } catch (_: Exception) {}
         }
