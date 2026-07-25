@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -728,7 +730,8 @@ fun HomeScreenPreview() {
 fun TopAppBar(
   title: String,
   onBack: () -> Unit,
-  modifier: Modifier = Modifier
+  modifier: Modifier = Modifier,
+  actions: @Composable RowScope.() -> Unit = {}
 ) {
   Row(
     modifier = modifier
@@ -760,8 +763,14 @@ fun TopAppBar(
         fontSize = 22.sp,
         color = TextMedium
       ),
-      modifier = Modifier.testTag("app_bar_title")
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier
+        .weight(1f)
+        .testTag("app_bar_title")
     )
+
+    actions()
   }
 }
 
@@ -1237,6 +1246,28 @@ fun buildGurmukhiLine(line: String, vishramColorHex: String): androidx.compose.u
   }
 }
 
+fun findAshtpadiIndex(verses: List<Verse>, num: Int): Int {
+  if (num < 1 || num > 24) return -1
+  if (num == 1) return 0
+
+  val slokIndices = verses.indices.filter { idx ->
+    val l = verses[idx].line.trim()
+    l == "ਸਲੋਕੁ ॥" || l.startsWith("ਸਲੋਕੁ")
+  }
+  if (num <= slokIndices.size) {
+    return slokIndices[num - 1]
+  }
+
+  val ashtpadiIndices = verses.indices.filter { idx ->
+    verses[idx].line.contains("ਅਸਟਪਦੀ")
+  }
+  if (num <= ashtpadiIndices.size) {
+    return ashtpadiIndices[num - 1]
+  }
+
+  return -1
+}
+
 @Composable
 fun BaniDetailScreen(
   baniName: String,
@@ -1246,7 +1277,22 @@ fun BaniDetailScreen(
   onBack: () -> Unit
 ) {
   val context = LocalContext.current
+  val coroutineScope = rememberCoroutineScope()
   val settingsState by settingsManager.settings.collectAsStateWithLifecycle()
+
+  val isSukhmaniSahib = remember(baniName) {
+    baniName.contains("ਸੁਖਮਨੀ") || baniName.lowercase().contains("sukhmani")
+  }
+
+  var showAshtpadiDialog by remember { mutableStateOf(false) }
+  var tempAshtpadiHighlightIndex by remember { mutableStateOf<Int?>(null) }
+
+  LaunchedEffect(tempAshtpadiHighlightIndex) {
+    if (tempAshtpadiHighlightIndex != null) {
+      kotlinx.coroutines.delay(3000)
+      tempAshtpadiHighlightIndex = null
+    }
+  }
 
   val fontSize = when (settingsState.fontSize) {
     "Small" -> 15.sp
@@ -1435,8 +1481,183 @@ fun BaniDetailScreen(
       TopAppBar(
         title = if (dynamicBaniTitle.isNotEmpty()) dynamicBaniTitle else (com.example.util.GurbaniUtils.cleanUserFriendlyTitle(baniName).ifEmpty { "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ" }),
         onBack = onBack,
+        actions = {
+          if (isSukhmaniSahib) {
+            Box(
+              modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(SaffronLight)
+                .border(1.dp, SaffronBorder, RoundedCornerShape(12.dp))
+                .clickable { showAshtpadiDialog = true }
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .testTag("top_bar_ashtpadi_button")
+            ) {
+              Text(
+                text = "📖 Jump",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = SaffronDark
+              )
+            }
+          }
+        },
         modifier = Modifier.padding(top = 8.dp)
       )
+
+      if (isSukhmaniSahib) {
+        if (showAshtpadiDialog) {
+          var inputText by remember { mutableStateOf("") }
+          var errorMessage by remember { mutableStateOf<String?>(null) }
+
+          AlertDialog(
+            onDismissRequest = {
+              showAshtpadiDialog = false
+              errorMessage = null
+            },
+            title = {
+              Text(
+                text = "Jump to Ashtpadi",
+                style = MaterialTheme.typography.titleLarge.copy(
+                  fontWeight = FontWeight.Bold,
+                  color = TextMedium,
+                  fontSize = 18.sp
+                ),
+                modifier = Modifier.testTag("ashtpadi_dialog_title")
+              )
+            },
+            text = {
+              Column {
+                Text(
+                  text = "Enter Ashtpadi number (1 to 24):",
+                  fontSize = 13.sp,
+                  color = TextGray
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                  value = inputText,
+                  onValueChange = { input ->
+                    val digits = input.filter { it.isDigit() }
+                    inputText = digits
+                    if (errorMessage != null) {
+                      errorMessage = null
+                    }
+                  },
+                  label = { Text("Ashtpadi Number") },
+                  placeholder = { Text("1 - 24") },
+                  singleLine = true,
+                  isError = errorMessage != null,
+                  keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                  colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Slate50,
+                    unfocusedContainerColor = Slate50,
+                    focusedIndicatorColor = SaffronPrimary,
+                    unfocusedIndicatorColor = Slate200,
+                    focusedLabelColor = SaffronPrimary
+                  ),
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("ashtpadi_number_input")
+                )
+                if (errorMessage != null) {
+                  Spacer(modifier = Modifier.height(8.dp))
+                  Text(
+                    text = errorMessage!!,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.testTag("ashtpadi_error_message")
+                  )
+                }
+              }
+            },
+            confirmButton = {
+              Button(
+                onClick = {
+                  val num = inputText.toIntOrNull()
+                  if (num != null && num in 1..24) {
+                    val targetIndex = findAshtpadiIndex(bani.verses, num)
+                    if (targetIndex >= 0 && targetIndex < bani.verses.size) {
+                      coroutineScope.launch {
+                        listState.animateScrollToItem(targetIndex)
+                      }
+                      tempAshtpadiHighlightIndex = targetIndex
+                      showAshtpadiDialog = false
+                      errorMessage = null
+                    } else {
+                      errorMessage = "Please enter an Ashtpadi number between 1 and 24."
+                    }
+                  } else {
+                    errorMessage = "Please enter an Ashtpadi number between 1 and 24."
+                  }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = SaffronPrimary),
+                modifier = Modifier.testTag("ashtpadi_go_button")
+              ) {
+                Text("Go", color = Color.White, fontWeight = FontWeight.Bold)
+              }
+            },
+            dismissButton = {
+              TextButton(
+                onClick = {
+                  showAshtpadiDialog = false
+                  errorMessage = null
+                },
+                modifier = Modifier.testTag("ashtpadi_cancel_button")
+              ) {
+                Text("Cancel", color = TextGray)
+              }
+            }
+          )
+        }
+
+        Card(
+          colors = CardDefaults.cardColors(containerColor = SaffronLight),
+          border = BorderStroke(1.dp, SaffronBorder),
+          shape = RoundedCornerShape(14.dp),
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable { showAshtpadiDialog = true }
+            .testTag("jump_to_ashtpadi_button")
+        ) {
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              Text("📖", fontSize = 16.sp)
+              Text(
+                text = "Jump to Ashtpadi (ਅਸਟਪਦੀ)",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                  fontWeight = FontWeight.Bold,
+                  color = SaffronDark,
+                  fontSize = 13.sp
+                )
+              )
+            }
+            Box(
+              modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.White)
+                .border(1.dp, SaffronPrimary, RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+              Text(
+                text = "1 - 24 ▾",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = SaffronPrimary
+              )
+            }
+          }
+        }
+      }
 
       if (activeAngNum != null) {
         val currentAng = activeAngNum!!
@@ -1636,7 +1857,7 @@ fun BaniDetailScreen(
           contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp)
         ) {
           itemsIndexed(bani.verses, key = { index, _ -> index }) { index, verse ->
-            val isHighlighted = index == activeHighlightIndex
+            val isHighlighted = index == activeHighlightIndex || index == tempAshtpadiHighlightIndex
             val isBookmarked = bookmarks.any { it.fileName == bani.fileName && it.lineIndex == index }
 
             Card(
