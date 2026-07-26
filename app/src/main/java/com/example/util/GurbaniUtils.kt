@@ -238,7 +238,7 @@ fun convertGurbaniAkharToUnicode(text: String): String {
         return normalizeGurmukhiCombiningMarks(res)
     }
 
-    var processedText = text.replace(Regex("\\]\\d+\\]?"), "]")
+    var processedText = text
     if (processedText.startsWith("] ")) {
         processedText = processedText.substring(2)
     } else if (processedText.startsWith("]")) {
