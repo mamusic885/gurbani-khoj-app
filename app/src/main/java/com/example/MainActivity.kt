@@ -1202,6 +1202,7 @@ fun BaniCard(
 }
 
 val santLipiFontFamily = FontFamily.Serif
+val notoSerifGurmukhiFontFamily = FontFamily.Serif
 
 @Composable
 fun buildGurmukhiLine(line: String, vishramColorHex: String): androidx.compose.ui.text.AnnotatedString {
@@ -1304,7 +1305,8 @@ fun BaniDetailScreen(
   val fontFamily = when (settingsState.fontFamily) {
     "Sant Lipi" -> santLipiFontFamily
     "Unicode Gurmukhi" -> FontFamily.SansSerif
-    else -> FontFamily.Default
+    "Noto Serif Gurmukhi" -> notoSerifGurmukhiFontFamily
+    else -> notoSerifGurmukhiFontFamily
   }
 
   val lineSpacingMultiplier = settingsState.lineSpacing
@@ -1312,7 +1314,8 @@ fun BaniDetailScreen(
 
   val initialAngNum = remember(baniName) {
     if (baniName.startsWith("sggs_ang_") || baniName.contains("ਅੰਗ")) {
-      baniName.filter { it.isDigit() }.toIntOrNull() ?: 1
+      val digits = baniName.filter { it.isDigit() || it in '੦'..'੯' }
+      digits.toIntOrNull() ?: com.example.util.GurbaniUtils.convertGurmukhiNumeralToDecimal(digits) ?: 1
     } else null
   }
   var activeAngNum by remember(baniName) { mutableStateOf(initialAngNum) }
@@ -2093,103 +2096,7 @@ fun String.toGurmukhiDigits(): String {
 }
 
 fun convertGurbaniAkharToUnicode(text: String): String {
-  if (text.isEmpty()) return text
-
-  if (text.any { it in '\u0A00'..'\u0A7F' }) {
-    var res = text
-      .replace("R", "੍ਰ")
-      .replace("®", "੍ਰ")
-      .replace("Ø", "")
-      .replace("ˆ", "")
-      .replace("ø", "")
-      .replace("0", "")
-    res = res.replace("ਿ੍ਰ", "੍ਰਿ").replace("ਿR", "੍ਰਿ")
-    return res
-  }
-
-  var processedText = text.replace(Regex("\\]\\d+\\]?"), "]")
-  if (processedText.startsWith("] ")) {
-    processedText = processedText.substring(2)
-  } else if (processedText.startsWith("]")) {
-    processedText = processedText.substring(1)
-  }
-
-  processedText = processedText.replace("Ø", "").replace("ˆ", "").replace("ø", "")
-
-  val mapping = mapOf(
-    "<>" to "ੴ",
-    "A`" to "ਅੰ", "Aw" to "ਆ", "ie" to "ਇ", "eI" to "ਈ", "au" to "ਉ", "aU" to "ਊ", "ey" to "ਏ", "AY" to "ਐ", "AO" to "ਔ", "Eu" to "ਉ",
-    "a" to "ੳ", "A" to "ਅ", "e" to "ੲ", "E" to "ਓ", "s" to "ਸ", "S" to "ਸ਼", "h" to "ਹ",
-    "k" to "ਕ", "K" to "ਖ", "g" to "ਗ", "G" to "ਘ", "c" to "ਚ", "C" to "ਛ", "j" to "ਜ", "J" to "ਝ",
-    "t" to "ਟ", "T" to "ਠ", "f" to "ਡ", "F" to "ਢ", "x" to "ਣ", "q" to "ਤ", "Q" to "ਥ",
-    "d" to "ਦ", "D" to "ਧ", "n" to "ਨ", "p" to "ਪ", "P" to "ਫ", "b" to "ਬ", "B" to "ਭ", "m" to "ਮ",
-    "r" to "ਰ", "l" to "ਲ", "v" to "ਵ", "R" to "੍ਰ", "®" to "੍ਰ", "V" to "ੜ",
-    "z" to "ਜ਼", "X" to "ਖ਼", "L" to "ਲ਼", "H" to "੍ਹ", "Z" to "ਗ਼", "&" to "ਫ਼",
-    "w" to "ਾ", "W" to "ਾਂ", "I" to "ੀ", "u" to "ੁ", "U" to "ੂ", "y" to "ੇ", "Y" to "ੈ", "o" to "ੋ", "O" to "ੌ",
-    "M" to "ੰ", "N" to "ੰ", "`" to "ੱ", "^" to "ੵ", "~" to "ੵ", "@" to "ੑ", "_" to "਼",
-    "[" to "।", "]" to "॥",
-    "0" to "੦", "1" to "੧", "2" to "੨", "3" to "੩", "4" to "੪", "5" to "੫", "6" to "੬", "7" to "੭", "8" to "੮", "9" to "੯"
-  )
-
-  val words = processedText.split(" ")
-  val resWords = mutableListOf<String>()
-  for (w in words) {
-    if (w.isEmpty()) {
-      resWords.add("")
-      continue
-    }
-    val sb = StringBuilder()
-    var i = 0
-    while (i < w.length) {
-      val ch = w[i]
-      if (ch == ';' || ch == '.') {
-        i++
-        continue
-      }
-      if (i + 1 < w.length && mapping.containsKey(w.substring(i, i + 2))) {
-        sb.append(mapping[w.substring(i, i + 2)])
-        i += 2
-      } else if (ch == 'i') {
-        i++
-        if (i < w.length) {
-          var nextSub = if (i + 1 < w.length && mapping.containsKey(w.substring(i, i + 2))) w.substring(i, i + 2) else w[i].toString()
-          var extraSubscript = ""
-          val nextEndIdx = i + nextSub.length
-          if (nextEndIdx < w.length && (w[nextEndIdx] == 'R' || w[nextEndIdx] == '®' || w[nextEndIdx] == 'H' || w[nextEndIdx] == '^' || w[nextEndIdx] == '~' || w[nextEndIdx] == '@')) {
-            extraSubscript = mapping[w[nextEndIdx].toString()] ?: ""
-          }
-          val convertedNext = mapping[nextSub] ?: nextSub
-          sb.append(convertedNext)
-          if (extraSubscript.isNotEmpty()) {
-            sb.append(extraSubscript)
-          }
-          sb.append('ਿ')
-          i += nextSub.length + (if (extraSubscript.isNotEmpty()) 1 else 0)
-        } else {
-          sb.append('ਿ')
-        }
-      } else if (mapping.containsKey(ch.toString())) {
-        sb.append(mapping[ch.toString()])
-        i++
-      } else {
-        if (ch !in 'a'..'z' && ch !in 'A'..'Z') {
-          sb.append(ch)
-        }
-        i++
-      }
-    }
-    resWords.add(sb.toString())
-  }
-  var result = resWords.joinToString(" ").replace(Regex("\\s+"), " ").trim()
-  result = result
-    .replace("R", "੍ਰ")
-    .replace("®", "੍ਰ")
-    .replace("Ø", "")
-    .replace("ˆ", "")
-    .replace("ø", "")
-    .replace("0", "")
-    .replace("ਿ੍ਰ", "੍ਰਿ")
-  return result
+  return com.example.util.convertGurbaniAkharToUnicode(text)
 }
 
 fun gurmukhiCharToRoman(ch: Char): Char {
@@ -2549,8 +2456,8 @@ fun SearchScreen(
   val activeFontFamily = when (activeFontName) {
     "Sant Lipi" -> santLipiFontFamily
     "Unicode Gurmukhi" -> FontFamily.SansSerif
-    "Noto Serif Gurmukhi" -> FontFamily.Serif
-    else -> FontFamily.Default
+    "Noto Serif Gurmukhi" -> notoSerifGurmukhiFontFamily
+    else -> notoSerifGurmukhiFontFamily
   }
 
   // SRI GURU GRANTH SAHIB JI BANIS (1430 Ang)

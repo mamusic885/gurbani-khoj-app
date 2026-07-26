@@ -348,23 +348,39 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
             }
 
             var copiedFromAssets = false
-            try {
-                val assetList = context.assets.list("") ?: emptyArray()
-                if (DB_NAME in assetList) {
-                    Log.d(TAG, "Copying assets/$DB_NAME to ${dbFile.absolutePath}...")
-                    context.assets.open(DB_NAME).use { input ->
-                        FileOutputStream(dbFile).use { output ->
-                            input.copyTo(output)
-                            output.flush()
-                        }
-                    }
+            val localTmpDb = File("/tmp/database.db")
+            if (localTmpDb.exists() && localTmpDb.length() > MIN_SIZE) {
+                try {
+                    Log.d(TAG, "Copying local /tmp/database.db to ${dbFile.absolutePath}...")
+                    localTmpDb.copyTo(dbFile, overwrite = true)
                     if (dbFile.exists() && dbFile.length() > MIN_SIZE) {
-                        Log.d(TAG, "copy successful")
+                        Log.d(TAG, "Local copy successful")
                         copiedFromAssets = true
                     }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Local /tmp/database.db copy failed: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.d(TAG, "Assets copy skipped or failed: ${e.message}")
+            }
+
+            if (!copiedFromAssets) {
+                try {
+                    val assetList = context.assets.list("") ?: emptyArray()
+                    if (DB_NAME in assetList) {
+                        Log.d(TAG, "Copying assets/$DB_NAME to ${dbFile.absolutePath}...")
+                        context.assets.open(DB_NAME).use { input ->
+                            FileOutputStream(dbFile).use { output ->
+                                input.copyTo(output)
+                                output.flush()
+                            }
+                        }
+                        if (dbFile.exists() && dbFile.length() > MIN_SIZE) {
+                            Log.d(TAG, "copy successful")
+                            copiedFromAssets = true
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Assets copy skipped or failed: ${e.message}")
+                }
             }
 
             if (copiedFromAssets) return
@@ -376,27 +392,38 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
             }
 
             try {
-                var url = java.net.URL(DB_URL)
-                var connection = url.openConnection() as java.net.HttpURLConnection
-                connection.instanceFollowRedirects = true
-                connection.connectTimeout = 30000
-                connection.readTimeout = 120000
-                connection.requestMethod = "GET"
+                var currentUrl = DB_URL
+                var connection: java.net.HttpURLConnection? = null
+                var redirects = 0
+                val maxRedirects = 5
 
-                var responseCode = connection.responseCode
-                if (responseCode == java.net.HttpURLConnection.HTTP_MOVED_PERM ||
-                    responseCode == java.net.HttpURLConnection.HTTP_MOVED_TEMP ||
-                    responseCode == 307 || responseCode == 308
-                ) {
-                    val newUrl = connection.getHeaderField("Location")
-                    connection.disconnect()
-                    url = java.net.URL(newUrl)
+                while (redirects < maxRedirects) {
+                    val url = java.net.URL(currentUrl)
                     connection = url.openConnection() as java.net.HttpURLConnection
+                    connection.instanceFollowRedirects = true
                     connection.connectTimeout = 30000
                     connection.readTimeout = 120000
+                    connection.requestMethod = "GET"
+                    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+
+                    val responseCode = connection.responseCode
+                    if (responseCode == java.net.HttpURLConnection.HTTP_MOVED_PERM ||
+                        responseCode == java.net.HttpURLConnection.HTTP_MOVED_TEMP ||
+                        responseCode == 303 || responseCode == 307 || responseCode == 308
+                    ) {
+                        val newUrl = connection.getHeaderField("Location")
+                        connection.disconnect()
+                        if (!newUrl.isNullOrEmpty()) {
+                            currentUrl = newUrl
+                            redirects++
+                            continue
+                        }
+                    }
+                    break
                 }
 
-                connection.inputStream.use { input ->
+                val conn = connection ?: throw IllegalStateException("Unable to open connection")
+                conn.inputStream.use { input ->
                     FileOutputStream(tempFile).use { output ->
                         input.copyTo(output)
                         output.flush()

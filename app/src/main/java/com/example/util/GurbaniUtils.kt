@@ -235,7 +235,7 @@ fun convertGurbaniAkharToUnicode(text: String): String {
             .replace("ø", "")
             .replace("0", "")
         res = res.replace("ਿ੍ਰ", "੍ਰਿ").replace("ਿR", "੍ਰਿ")
-        return res
+        return normalizeGurmukhiCombiningMarks(res)
     }
 
     var processedText = text.replace(Regex("\\]\\d+\\]?"), "]")
@@ -247,9 +247,14 @@ fun convertGurbaniAkharToUnicode(text: String): String {
 
     processedText = processedText.replace("Ø", "").replace("ˆ", "").replace("ø", "")
 
-    val mapping = mapOf(
+    val mappingPairs = mapOf(
         "<>" to "ੴ",
-        "A`" to "ਅੰ", "Aw" to "ਆ", "ie" to "ਇ", "eI" to "ਈ", "au" to "ਉ", "aU" to "ਊ", "ey" to "ਏ", "AY" to "ਐ", "AO" to "ਔ", "Eu" to "ਉ",
+        "A`" to "ਅੰ", "Aw" to "ਆ", "ie" to "ਇ", "eI" to "ਈ", "au" to "ਉ", "aU" to "ਊ",
+        "ey" to "ਏ", "AY" to "ਐ", "AO" to "ਔ", "Eu" to "ਉ",
+        "mÚ" to "ਮੵ", "mÂ" to "ਮੵ"
+    )
+
+    val mappingSingles = mapOf(
         "a" to "ੳ", "A" to "ਅ", "e" to "ੲ", "E" to "ਓ", "s" to "ਸ", "S" to "ਸ਼", "h" to "ਹ",
         "k" to "ਕ", "K" to "ਖ", "g" to "ਗ", "G" to "ਘ", "c" to "ਚ", "C" to "ਛ", "j" to "ਜ", "J" to "ਝ",
         "t" to "ਟ", "T" to "ਠ", "f" to "ਡ", "F" to "ਢ", "x" to "ਣ", "q" to "ਤ", "Q" to "ਥ",
@@ -257,9 +262,13 @@ fun convertGurbaniAkharToUnicode(text: String): String {
         "r" to "ਰ", "l" to "ਲ", "v" to "ਵ", "R" to "੍ਰ", "®" to "੍ਰ", "V" to "ੜ",
         "z" to "ਜ਼", "X" to "ਖ਼", "L" to "ਲ਼", "H" to "੍ਹ", "Z" to "ਗ਼", "&" to "ਫ਼",
         "w" to "ਾ", "W" to "ਾਂ", "I" to "ੀ", "u" to "ੁ", "U" to "ੂ", "y" to "ੇ", "Y" to "ੈ", "o" to "ੋ", "O" to "ੌ",
-        "M" to "ੰ", "N" to "ੰ", "`" to "ੱ", "^" to "ੵ", "~" to "ੵ", "@" to "ੑ", "_" to "਼",
+        "M" to "ੰ", "N" to "ੰ", "µ" to "ੰ", "`" to "ੱ", "˜" to "ੱ", "¤" to "ੱ",
+        "^" to "ੵ", "~" to "ੵ", "´" to "ੵ", "Î" to "ੵ", "î" to "ੵ",
+        "@" to "ੑ", "_" to "਼",
+        "ç" to "੍ਛ", "œ" to "੍ਵ", "Í" to "੍ਵ", "†" to "੍ਟ", "¨" to "੍ਰ", "ü" to "ੁ", "ï" to "ਿ",
         "[" to "।", "]" to "॥",
-        "0" to "੦", "1" to "੧", "2" to "੨", "3" to "੩", "4" to "੪", "5" to "੫", "6" to "੬", "7" to "੭", "8" to "੮", "9" to "੯"
+        "0" to "੦", "1" to "੧", "2" to "੨", "3" to "੩", "4" to "੪", "5" to "੫", "6" to "੬", "7" to "੭", "8" to "੮", "9" to "੯",
+        "₁" to "੧", "₂" to "੨", "₃" to "੩", "₄" to "੪", "₅" to "੫", "₆" to "੬", "₈" to "੮"
     )
 
     val words = processedText.split(" ")
@@ -277,39 +286,86 @@ fun convertGurbaniAkharToUnicode(text: String): String {
                 i++
                 continue
             }
-            if (i < w.length - 1) {
+
+            var pairFound = false
+            if (i + 1 < w.length) {
                 val pair = w.substring(i, i + 2)
-                if (mapping.containsKey(pair)) {
-                    sb.append(mapping[pair])
+                if (mappingPairs.containsKey(pair)) {
+                    sb.append(mappingPairs[pair])
                     i += 2
-                    continue
+                    pairFound = true
                 }
             }
-            val single = ch.toString()
-            if (mapping.containsKey(single)) {
-                sb.append(mapping[single])
-            } else {
-                sb.append(ch)
-            }
-            i++
-        }
+            if (pairFound) continue
 
-        var str = sb.toString()
+            if (ch == 'i') {
+                i++
+                if (i < w.length) {
+                    var nextSubStr = w[i].toString()
+                    if (i + 1 < w.length && mappingPairs.containsKey(w.substring(i, i + 2))) {
+                        nextSubStr = w.substring(i, i + 2)
+                    }
 
-        var current = 0
-        while (current < str.length - 1) {
-            if (str[current] == 'ਿ') {
-                val nextChar = str[current + 1]
-                val strArr = str.toCharArray()
-                strArr[current] = nextChar
-                strArr[current + 1] = 'ਿ'
-                str = String(strArr)
-                current += 2
+                    var extraSubscript = ""
+                    val nextEndIdx = i + nextSubStr.length
+                    if (nextEndIdx < w.length && w[nextEndIdx] in listOf('R', '®', 'H', '^', '~', '@', '´', 'Î', 'î', 'ç', 'œ', 'Í', '†', '¨')) {
+                        extraSubscript = mappingSingles[w[nextEndIdx].toString()] ?: ""
+                    }
+
+                    val convertedNext = mappingPairs[nextSubStr] ?: mappingSingles[nextSubStr] ?: nextSubStr
+                    sb.append(convertedNext)
+                    if (extraSubscript.isNotEmpty()) {
+                        sb.append(extraSubscript)
+                    }
+                    sb.append('ਿ')
+                    i += nextSubStr.length + (if (extraSubscript.isNotEmpty()) 1 else 0)
+                } else {
+                    sb.append('ਿ')
+                }
+            } else if (mappingSingles.containsKey(ch.toString())) {
+                sb.append(mappingSingles[ch.toString()])
+                i++
             } else {
-                current++
+                if (ch !in 'a'..'z' && ch !in 'A'..'Z') {
+                    sb.append(ch)
+                }
+                i++
             }
         }
-        resWords.add(str)
+        resWords.add(sb.toString())
     }
-    return resWords.joinToString(" ")
+
+    var result = resWords.joinToString(" ").replace(Regex("\\s+"), " ").trim()
+    result = result
+        .replace("R", "੍ਰ")
+        .replace("®", "੍ਰ")
+        .replace("Ø", "")
+        .replace("ˆ", "")
+        .replace("ø", "")
+        .replace("0", "")
+        .replace("ਿ੍ਰ", "੍ਰਿ")
+        .replace("ਅਿ", "ਇ")
+
+    return normalizeGurmukhiCombiningMarks(result)
+}
+
+fun normalizeGurmukhiCombiningMarks(text: String): String {
+    if (text.isEmpty()) return text
+    val chars = text.toCharArray().toMutableList()
+    val vowels = setOf('\u0A3E', '\u0A3F', '\u0A40', '\u0A41', '\u0A42', '\u0A47', '\u0A48', '\u0A4B', '\u0A4C')
+    val nasals = setOf('\u0A02', '\u0A70', '\u0A71')
+
+    var idx = 0
+    var maxOps = chars.size * 5
+    while (idx < chars.size - 1 && maxOps-- > 0) {
+        if (chars[idx] in nasals && chars[idx + 1] in vowels) {
+            val temp = chars[idx]
+            chars[idx] = chars[idx + 1]
+            chars[idx + 1] = temp
+            idx = maxOf(0, idx - 1)
+        } else {
+            idx++
+        }
+    }
+    return String(chars.toCharArray())
 }
