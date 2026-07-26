@@ -6,6 +6,8 @@ import com.example.data.SggsDatabase
 import com.example.data.LineEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -403,14 +405,15 @@ fun HomeScreen(
       Column(
         modifier = Modifier
           .fillMaxSize()
+          .verticalScroll(rememberScrollState())
           .padding(horizontal = 24.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.Top
       ) {
         // Upper section: Header, Title, and Accent Divider
         Column(
           horizontalAlignment = Alignment.CenterHorizontally,
-          modifier = Modifier.padding(top = 24.dp)
+          modifier = Modifier.padding(top = 16.dp)
         ) {
           // Animated Ik Onkar symbol
           AnimatedVisibility(
@@ -488,7 +491,7 @@ fun HomeScreen(
             initialOffsetY = { 80 },
             animationSpec = spring(stiffness = 100f)
           ),
-          modifier = Modifier.weight(1f)
+          modifier = Modifier.fillMaxWidth()
         ) {
           Column(
             modifier = Modifier
@@ -579,7 +582,7 @@ fun HomeScreen(
           horizontalAlignment = Alignment.CenterHorizontally,
           modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp)
+            .padding(top = 8.dp, bottom = 16.dp)
         ) {
           Text(
             text = "ੴ ਸਤਿਗੁਰ ਪ੍ਰਸਾਦਿ",
@@ -591,8 +594,21 @@ fun HomeScreen(
               textAlign = TextAlign.Center
             ),
             modifier = Modifier
-              .padding(bottom = 16.dp)
+              .padding(bottom = 4.dp)
               .testTag("footer_attribution")
+          )
+
+          Text(
+            text = "Made by Manjot Singh M.Aa*",
+            style = MaterialTheme.typography.bodySmall.copy(
+              color = TextGray,
+              fontWeight = FontWeight.Medium,
+              fontSize = 12.sp,
+              textAlign = TextAlign.Center
+            ),
+            modifier = Modifier
+              .padding(bottom = 12.dp)
+              .testTag("home_made_by_credit")
           )
           
           // Slate navigation gesture indicator bar
