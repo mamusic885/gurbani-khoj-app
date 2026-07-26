@@ -184,6 +184,13 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
     val title = convertGurbaniAkharToUnicode(rawTitle)
     val versesArray = jsonObject.getJSONArray("verses")
     val verses = mutableListOf<Verse>()
+
+    val punjabiMap = try {
+      com.example.data.SggsDatabase.getInstance(context).getPunjabiTranslationMap()
+    } catch (e: Exception) {
+      emptyMap()
+    }
+
     for (i in 0 until versesArray.length()) {
       val verseObj = versesArray.getJSONObject(i)
       val id = verseObj.optInt("id", i)
@@ -192,7 +199,18 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
       val pauseType = if (verseObj.has("pauseType")) verseObj.getString("pauseType") else null
       val bookmarked = verseObj.optBoolean("bookmarked", false)
       val translation = verseObj.optString("translation", "")
-      val punjabiTranslation = verseObj.optString("punjabiTranslation", verseObj.optString("punjabi_translation", ""))
+      var punjabiTranslation = verseObj.optString("punjabiTranslation", verseObj.optString("punjabi_translation", ""))
+
+      if (punjabiTranslation.isEmpty() && punjabiMap.isNotEmpty()) {
+        val cleanLine = line.replace("॥", "").replace("।", "").replace("|", "").trim()
+        val cleanRawLine = rawLine.replace("॥", "").replace("।", "").replace("|", "").trim()
+        punjabiTranslation = punjabiMap[rawLine]
+          ?: punjabiMap[line]
+          ?: punjabiMap[cleanRawLine]
+          ?: punjabiMap[cleanLine]
+          ?: ""
+      }
+
       verses.add(Verse(id = id, index = i, line = line, pauseType = pauseType, bookmarked = bookmarked, translation = translation, punjabiTranslation = punjabiTranslation))
     }
     Bani(fileName = fileName, title = title, verses = verses)
@@ -3780,6 +3798,25 @@ fun AboutScreen(
                   modifier = Modifier.testTag("about_app_version")
                 )
               }
+              Spacer(modifier = Modifier.height(12.dp))
+              Text(
+                text = "Made by",
+                style = MaterialTheme.typography.labelLarge.copy(
+                  color = TextGray,
+                  fontSize = 12.sp,
+                  fontWeight = FontWeight.Medium
+                )
+              )
+              Spacer(modifier = Modifier.height(2.dp))
+              Text(
+                text = "Manjot Singh M.Aa✶",
+                style = MaterialTheme.typography.titleMedium.copy(
+                  color = TextMedium,
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 16.sp
+                ),
+                modifier = Modifier.testTag("made_by_credit")
+              )
             }
           }
         }
@@ -3809,6 +3846,7 @@ fun AboutScreen(
               Spacer(modifier = Modifier.height(12.dp))
 
               val bulletPoints = listOf(
+                "ਇਹ ਐਪ 100% offline ਹੈ।",
                 "ਗੁਰਬਾਣੀ ਖੋਜ ਇੱਕ ਮੁਫ਼ਤ ਅਤੇ ਆਫਲਾਈਨ ਗੁਰਬਾਣੀ ਖੋਜ ਐਪ ਹੈ।",
                 "ਇਸ ਐਪ ਰਾਹੀਂ ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ ਵਿੱਚੋਂ ਗੁਰਬਾਣੀ ਨੂੰ ਤੇਜ਼ੀ ਨਾਲ ਖੋਜਿਆ ਜਾ ਸਕਦਾ ਹੈ।",
                 "ਅੱਖਰ ਖੋਜ ਅਤੇ ਪੂਰੇ ਸ਼ਬਦਾਂ ਰਾਹੀਂ ਖੋਜ ਦੀ ਸੁਵਿਧਾ ਉਪਲਬਧ ਹੈ।",
@@ -3845,7 +3883,7 @@ fun AboutScreen(
           }
         }
 
-        // Made By & Copyright Card
+        // Copyright Card
         item {
           Card(
             colors = CardDefaults.cardColors(containerColor = Slate50),
@@ -3857,31 +3895,10 @@ fun AboutScreen(
           ) {
             Column(
               modifier = Modifier
-                .padding(20.dp)
+                .padding(16.dp)
                 .fillMaxWidth(),
               horizontalAlignment = Alignment.CenterHorizontally
             ) {
-              Text(
-                text = "Made by",
-                style = MaterialTheme.typography.labelLarge.copy(
-                  color = TextGray,
-                  fontSize = 12.sp,
-                  fontWeight = FontWeight.Medium
-                )
-              )
-              Spacer(modifier = Modifier.height(2.dp))
-              Text(
-                text = "Manjot Singh M.Aa*",
-                style = MaterialTheme.typography.titleMedium.copy(
-                  color = TextMedium,
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 16.sp
-                ),
-                modifier = Modifier.testTag("made_by_credit")
-              )
-
-              Spacer(modifier = Modifier.height(16.dp))
-
               Text(
                 text = "© 2026 Gurbani Khoj",
                 style = MaterialTheme.typography.bodySmall.copy(

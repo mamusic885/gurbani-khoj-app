@@ -316,6 +316,52 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
         return 0
     }
 
+    @Volatile
+    private var cachedPunjabiMap: Map<String, String>? = null
+
+    fun getPunjabiTranslationMap(): Map<String, String> {
+        cachedPunjabiMap?.let { return it }
+        return synchronized(this) {
+            cachedPunjabiMap?.let { return@synchronized it }
+            val map = HashMap<String, String>()
+            try {
+                val db = getReadableDb()
+                val sql = """
+                    SELECT l.gurmukhi, COALESCE(tp3.translation, tp6.translation) AS punjabi_translation
+                    FROM lines l
+                    LEFT JOIN translations tp3 ON l.id = tp3.line_id AND tp3.translation_source_id = 3
+                    LEFT JOIN translations tp6 ON l.id = tp6.line_id AND tp6.translation_source_id = 6
+                    WHERE tp3.translation IS NOT NULL OR tp6.translation IS NOT NULL
+                """.trimIndent()
+                db.rawQuery(sql, null).use { cursor ->
+                    val gurmukhiIdx = cursor.getColumnIndex("gurmukhi")
+                    val punjabiIdx = cursor.getColumnIndex("punjabi_translation")
+                    while (cursor.moveToNext()) {
+                        val rawGurmukhi = if (gurmukhiIdx >= 0 && !cursor.isNull(gurmukhiIdx)) cursor.getString(gurmukhiIdx) else ""
+                        val punjabi = if (punjabiIdx >= 0 && !cursor.isNull(punjabiIdx)) cursor.getString(punjabiIdx) else ""
+                        if (rawGurmukhi.isNotEmpty() && punjabi.isNotEmpty()) {
+                            val unicodeLine = convertGurbaniAkharToUnicode(rawGurmukhi)
+                            map[rawGurmukhi] = punjabi
+                            map[unicodeLine] = punjabi
+                            val cleanLine = unicodeLine.replace("॥", "").replace("।", "").replace("|", "").trim()
+                            if (cleanLine.isNotEmpty()) {
+                                map[cleanLine] = punjabi
+                            }
+                            val cleanRaw = rawGurmukhi.replace("॥", "").replace("।", "").replace("|", "").trim()
+                            if (cleanRaw.isNotEmpty()) {
+                                map[cleanRaw] = punjabi
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error building Punjabi translation map: ${e.message}", e)
+            }
+            cachedPunjabiMap = map
+            map
+        }
+    }
+
     companion object {
         private const val DB_NAME = "database.db"
         private const val TAG = "SggsDatabase"
