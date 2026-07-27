@@ -21,6 +21,7 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
     // Pre-mapped verse caches for UI composables
     private val shabadVerseCache = LruCache<String, Pair<List<com.example.Verse>, String>>(200)
     private val angVerseCache = LruCache<Int, List<com.example.Verse>>(200)
+    private val nitnemBaniCache = LruCache<String, com.example.Bani>(50)
 
     fun getCachedShabadVerses(shabadId: String): Pair<List<com.example.Verse>, String>? = shabadVerseCache.get(shabadId)
     fun putCachedShabadVerses(shabadId: String, verses: List<com.example.Verse>, title: String) {
@@ -30,6 +31,11 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
     fun getCachedAngVerses(ang: Int): List<com.example.Verse>? = angVerseCache.get(ang)
     fun putCachedAngVerses(ang: Int, verses: List<com.example.Verse>) {
         angVerseCache.put(ang, verses)
+    }
+
+    fun getCachedNitnemBani(fileName: String): com.example.Bani? = nitnemBaniCache.get(fileName)
+    fun putCachedNitnemBani(fileName: String, bani: com.example.Bani) {
+        nitnemBaniCache.put(fileName, bani)
     }
 
     override fun onCreate(db: SQLiteDatabase?) {

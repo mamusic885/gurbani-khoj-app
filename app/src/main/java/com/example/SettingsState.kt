@@ -9,5 +9,5 @@ data class SettingsState(
     val keepScreenOn: Boolean = false,
     val isFirstLaunchDone: Boolean = false,
     val showTranslation: Boolean = true,
-    val showPunjabiTranslation: Boolean = false
+    val showPunjabiTranslation: Boolean = true
 )

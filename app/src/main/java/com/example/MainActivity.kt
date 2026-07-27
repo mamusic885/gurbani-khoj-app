@@ -186,6 +186,9 @@ fun getBaniFileName(title: String): String {
 }
 
 fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani {
+  val sggsDb = com.example.data.SggsDatabase.getInstance(context)
+  sggsDb.getCachedNitnemBani(fileName)?.let { return it }
+
   return try {
     val jsonString = context.assets.open("bani/$fileName").bufferedReader().use { it.readText() }
     val jsonObject = org.json.JSONObject(jsonString)
@@ -194,8 +197,7 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
     val versesArray = jsonObject.getJSONArray("verses")
     val verses = mutableListOf<Verse>()
 
-    val sggsDb = com.example.data.SggsDatabase.getInstance(context)
-    val punjabiMap = if (sggsDb.hasPunjabiMap()) sggsDb.getPunjabiTranslationMap() else emptyMap()
+    val punjabiMap = sggsDb.getPunjabiTranslationMap()
 
     for (i in 0 until versesArray.length()) {
       val verseObj = versesArray.getJSONObject(i)
@@ -219,7 +221,9 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
 
       verses.add(Verse(id = id, index = i, line = line, pauseType = pauseType, bookmarked = bookmarked, translation = translation, punjabiTranslation = punjabiTranslation))
     }
-    Bani(fileName = fileName, title = title, verses = verses)
+    val bani = Bani(fileName = fileName, title = title, verses = verses)
+    sggsDb.putCachedNitnemBani(fileName, bani)
+    bani
   } catch (e: Exception) {
     e.printStackTrace()
     val fallbackTitle = when (fileName) {
@@ -1375,13 +1379,21 @@ fun BaniDetailScreen(
       if (cachedPair != null) {
         Pair(cachedPair.first, cachedPair.second)
       } else null
-    } else null
+    } else {
+      val fileName = getBaniFileName(baniName)
+      if (fileName.isNotEmpty()) {
+        val cachedNitnem = sggsDb.getCachedNitnemBani(fileName)
+        if (cachedNitnem != null && cachedNitnem.verses.isNotEmpty()) {
+          Pair(cachedNitnem.verses, cachedNitnem.title)
+        } else null
+      } else null
+    }
   }
 
   var sggsVerses by remember(baniName, activeAngNum) { mutableStateOf(initialCachedData?.first ?: emptyList()) }
   var dynamicBaniTitle by remember(baniName, activeAngNum) { mutableStateOf(initialCachedData?.second ?: baniName) }
   var isSggsLoading by remember(baniName, activeAngNum) {
-    mutableStateOf(initialCachedData == null && (activeAngNum != null || baniName.startsWith("sggs_shabad_")))
+    mutableStateOf(initialCachedData == null)
   }
   var showLoadingUI by remember(baniName, activeAngNum) { mutableStateOf(false) }
   var sggsErrorMessage by remember(baniName, activeAngNum) { mutableStateOf<String?>(null) }
@@ -1402,7 +1414,12 @@ fun BaniDetailScreen(
     } else {
       val fileName = getBaniFileName(baniName)
       if (fileName.isNotEmpty()) {
-        loadBaniFromAsset(context, fileName)
+        val cached = sggsDb.getCachedNitnemBani(fileName)
+        if (cached != null) {
+          cached
+        } else {
+          Bani("", baniName, emptyList())
+        }
       } else {
         Bani("", baniName, emptyList())
       }
@@ -1417,96 +1434,110 @@ fun BaniDetailScreen(
       return@LaunchedEffect
     }
 
-    if (activeAngNum != null || baniName.startsWith("sggs_shabad_")) {
-      isSggsLoading = true
-      showLoadingUI = false
+    isSggsLoading = true
+    showLoadingUI = false
 
-      val timerJob = launch {
-        kotlinx.coroutines.delay(150)
-        if (isSggsLoading) {
-          showLoadingUI = true
-        }
+    val timerJob = launch {
+      kotlinx.coroutines.delay(150)
+      if (isSggsLoading) {
+        showLoadingUI = true
       }
+    }
 
-      try {
-        withContext(Dispatchers.IO) {
-          if (activeAngNum != null) {
-            val currentAng = activeAngNum!!
-            val gurmukhiNumeral = convertToGurmukhiNumeral(currentAng)
-            val title = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ $gurmukhiNumeral)"
-            val entities = sggsDb.searchByAng(currentAng)
-            if (entities.isNotEmpty()) {
-              val verses = entities.mapIndexed { idx, item ->
-                Verse(
-                  id = item.line.id.toIntOrNull() ?: item.line.id.hashCode(),
-                  index = idx,
-                  line = convertGurbaniAkharToUnicode(item.line.gurmukhi),
-                  translation = item.translation ?: item.line.translation,
-                  punjabiTranslation = item.punjabiTranslation ?: item.line.punjabiTranslation
-                )
-              }
-              sggsDb.putCachedAngVerses(currentAng, verses)
-              withContext(Dispatchers.Main) {
-                dynamicBaniTitle = title
-                sggsVerses = verses
-                isSggsLoading = false
-                showLoadingUI = false
-                timerJob.cancel()
-              }
-            } else {
-              withContext(Dispatchers.Main) {
-                isSggsLoading = false
-                showLoadingUI = false
-                timerJob.cancel()
-                sggsErrorMessage = "ਅੰਗ $currentAng ਲਈ ਕੋਈ ਬਾਣੀ ਨਹੀਂ ਮਿਲੀ।"
-              }
+    try {
+      withContext(Dispatchers.IO) {
+        if (activeAngNum != null) {
+          val currentAng = activeAngNum!!
+          val gurmukhiNumeral = convertToGurmukhiNumeral(currentAng)
+          val title = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ $gurmukhiNumeral)"
+          val entities = sggsDb.searchByAng(currentAng)
+          if (entities.isNotEmpty()) {
+            val verses = entities.mapIndexed { idx, item ->
+              Verse(
+                id = item.line.id.toIntOrNull() ?: item.line.id.hashCode(),
+                index = idx,
+                line = convertGurbaniAkharToUnicode(item.line.gurmukhi),
+                translation = item.translation ?: item.line.translation,
+                punjabiTranslation = item.punjabiTranslation ?: item.line.punjabiTranslation
+              )
             }
-          } else if (baniName.startsWith("sggs_shabad_")) {
-            val shabadId = baniName.removePrefix("sggs_shabad_")
-            val lineEntities = sggsDb.getShabadByShabadId(shabadId)
-            if (lineEntities.isNotEmpty()) {
-              val firstLine = lineEntities.first().line
-              val raagSuffix = if (firstLine.raag.isNotEmpty()) " • ${firstLine.raag}" else ""
-              val title = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${convertToGurmukhiNumeral(firstLine.source_page)})$raagSuffix"
-              val verses = lineEntities.mapIndexed { idx, item ->
-                Verse(
-                  id = item.line.id.toIntOrNull() ?: item.line.id.hashCode(),
-                  index = idx,
-                  line = convertGurbaniAkharToUnicode(item.line.gurmukhi),
-                  translation = item.translation ?: item.line.translation,
-                  punjabiTranslation = item.punjabiTranslation ?: item.line.punjabiTranslation
-                )
-              }
-              sggsDb.putCachedShabadVerses(shabadId, verses, title)
-              withContext(Dispatchers.Main) {
-                dynamicBaniTitle = title
-                sggsVerses = verses
-                isSggsLoading = false
-                showLoadingUI = false
-                timerJob.cancel()
-              }
-            } else {
-              withContext(Dispatchers.Main) {
-                isSggsLoading = false
-                showLoadingUI = false
-                timerJob.cancel()
-                sggsErrorMessage = "ਸ਼ਬਦ $shabadId ਡਾਟਾਬੇਸ ਵਿੱਚ ਨਹੀਂ ਮਿਲਿਆ।"
-              }
+            sggsDb.putCachedAngVerses(currentAng, verses)
+            withContext(Dispatchers.Main) {
+              dynamicBaniTitle = title
+              sggsVerses = verses
+              isSggsLoading = false
+              showLoadingUI = false
+              timerJob.cancel()
+            }
+          } else {
+            withContext(Dispatchers.Main) {
+              isSggsLoading = false
+              showLoadingUI = false
+              timerJob.cancel()
+              sggsErrorMessage = "ਅੰਗ $currentAng ਲਈ ਕੋਈ ਬਾਣੀ ਨਹੀਂ ਮਿਲੀ।"
+            }
+          }
+        } else if (baniName.startsWith("sggs_shabad_")) {
+          val shabadId = baniName.removePrefix("sggs_shabad_")
+          val lineEntities = sggsDb.getShabadByShabadId(shabadId)
+          if (lineEntities.isNotEmpty()) {
+            val firstLine = lineEntities.first().line
+            val raagSuffix = if (firstLine.raag.isNotEmpty()) " • ${firstLine.raag}" else ""
+            val title = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ ${convertToGurmukhiNumeral(firstLine.source_page)})$raagSuffix"
+            val verses = lineEntities.mapIndexed { idx, item ->
+              Verse(
+                id = item.line.id.toIntOrNull() ?: item.line.id.hashCode(),
+                index = idx,
+                line = convertGurbaniAkharToUnicode(item.line.gurmukhi),
+                translation = item.translation ?: item.line.translation,
+                punjabiTranslation = item.punjabiTranslation ?: item.line.punjabiTranslation
+              )
+            }
+            sggsDb.putCachedShabadVerses(shabadId, verses, title)
+            withContext(Dispatchers.Main) {
+              dynamicBaniTitle = title
+              sggsVerses = verses
+              isSggsLoading = false
+              showLoadingUI = false
+              timerJob.cancel()
+            }
+          } else {
+            withContext(Dispatchers.Main) {
+              isSggsLoading = false
+              showLoadingUI = false
+              timerJob.cancel()
+              sggsErrorMessage = "ਸ਼ਬਦ $shabadId ਡਾਟਾਬੇਸ ਵਿੱਚ ਨਹੀਂ ਮਿਲਿਆ।"
+            }
+          }
+        } else {
+          val fileName = getBaniFileName(baniName)
+          if (fileName.isNotEmpty()) {
+            val nitnemBani = loadBaniFromAsset(context, fileName)
+            withContext(Dispatchers.Main) {
+              dynamicBaniTitle = nitnemBani.title
+              sggsVerses = nitnemBani.verses
+              isSggsLoading = false
+              showLoadingUI = false
+              timerJob.cancel()
+            }
+          } else {
+            withContext(Dispatchers.Main) {
+              isSggsLoading = false
+              showLoadingUI = false
+              timerJob.cancel()
+              sggsErrorMessage = "ਇਸ ਬਾਣੀ ਦਾ ਪਾਠ ਉਪਲਬਧ ਨਹੀਂ ਹੈ।"
             }
           }
         }
-      } catch (e: Exception) {
-        android.util.Log.e("BaniDetailScreen", "Error loading SGGS content: ${e.message}", e)
-        withContext(Dispatchers.Main) {
-          isSggsLoading = false
-          showLoadingUI = false
-          timerJob.cancel()
-          sggsErrorMessage = "ਤਰੁੱਟੀ: ${e.localizedMessage ?: e.message}"
-        }
       }
-    } else {
-      isSggsLoading = false
-      showLoadingUI = false
+    } catch (e: Exception) {
+      android.util.Log.e("BaniDetailScreen", "Error loading Bani content: ${e.message}", e)
+      withContext(Dispatchers.Main) {
+        isSggsLoading = false
+        showLoadingUI = false
+        timerJob.cancel()
+        sggsErrorMessage = "ਤਰੁੱਟੀ: ${e.localizedMessage ?: e.message}"
+      }
     }
   }
 
@@ -2006,11 +2037,12 @@ fun BaniDetailScreen(
                     )
                   }
 
-                  if (verse.punjabiTranslation.isNotEmpty() && settingsState.showPunjabiTranslation) {
+                  if (settingsState.showPunjabiTranslation) {
                     Spacer(modifier = Modifier.height(8.dp))
+                    val pText = if (verse.punjabiTranslation.isNotEmpty()) verse.punjabiTranslation else "ਪੰਜਾਬੀ ਟੀਕਾ ਉਪਲਬਧ ਨਹੀਂ ਹੈ"
                     // Punjabi Translation line
                     Text(
-                      text = verse.punjabiTranslation,
+                      text = pText,
                       style = MaterialTheme.typography.bodyMedium.copy(
                         fontSize = 13.sp,
                         color = TextGray,
