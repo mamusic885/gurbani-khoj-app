@@ -108,9 +108,27 @@ class MainActivity : ComponentActivity() {
 
     kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
       try {
-        SggsDatabase.getInstance(applicationContext).getReadableDb()
+        val db = SggsDatabase.getInstance(applicationContext)
+        db.getReadableDb()
+        db.getPunjabiTranslationMap()
+        val nitnemFiles = listOf(
+          "japji_sahib.json",
+          "jaap_sahib.json",
+          "tav_prasad_savaiye.json",
+          "chaupai_sahib.json",
+          "anand_sahib.json",
+          "rehras_sahib.json",
+          "kirtan_sohila.json",
+          "ardas.json",
+          "aarti.json",
+          "asa_di_vaar.json",
+          "sri_sukhmani_sahib.json"
+        )
+        for (f in nitnemFiles) {
+          loadBaniFromAsset(applicationContext, f)
+        }
       } catch (e: Exception) {
-        android.util.Log.e("MainActivity", "Error pre-opening SggsDatabase: ${e.message}")
+        android.util.Log.e("MainActivity", "Error pre-opening SggsDatabase or preloading Banis: ${e.message}")
       }
     }
 
@@ -1438,7 +1456,7 @@ fun BaniDetailScreen(
     showLoadingUI = false
 
     val timerJob = launch {
-      kotlinx.coroutines.delay(150)
+      kotlinx.coroutines.delay(100)
       if (isSggsLoading) {
         showLoadingUI = true
       }
