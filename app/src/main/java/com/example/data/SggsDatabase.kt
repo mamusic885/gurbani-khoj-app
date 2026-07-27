@@ -4,13 +4,33 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
+import android.util.LruCache
 import com.example.util.convertGurbaniAkharToUnicode
 import java.io.File
 import java.io.FileOutputStream
 
 class SggsDatabase private constructor(private val context: Context) : SQLiteOpenHelper(context, DB_NAME, null, 1) {
 
+    @Volatile
     private var openDb: SQLiteDatabase? = null
+
+    // In-memory caches for fast retrieval
+    private val shabadCache = LruCache<String, List<LineWithTranslation>>(200)
+    private val angCache = LruCache<Int, List<LineWithTranslation>>(200)
+
+    // Pre-mapped verse caches for UI composables
+    private val shabadVerseCache = LruCache<String, Pair<List<com.example.Verse>, String>>(200)
+    private val angVerseCache = LruCache<Int, List<com.example.Verse>>(200)
+
+    fun getCachedShabadVerses(shabadId: String): Pair<List<com.example.Verse>, String>? = shabadVerseCache.get(shabadId)
+    fun putCachedShabadVerses(shabadId: String, verses: List<com.example.Verse>, title: String) {
+        shabadVerseCache.put(shabadId, Pair(verses, title))
+    }
+
+    fun getCachedAngVerses(ang: Int): List<com.example.Verse>? = angVerseCache.get(ang)
+    fun putCachedAngVerses(ang: Int, verses: List<com.example.Verse>) {
+        angVerseCache.put(ang, verses)
+    }
 
     override fun onCreate(db: SQLiteDatabase?) {
         // Pre-packaged database from assets. No creation script needed.
@@ -34,39 +54,34 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
         val db = SQLiteDatabase.openDatabase(
             dbFile.absolutePath,
             null,
-            SQLiteDatabase.OPEN_READONLY
+            SQLiteDatabase.OPEN_READWRITE
         )
         openDb = db
-        Log.d(TAG, "Room opened successfully")
-        validateDatabase(db)
+        Log.d(TAG, "SQLite Database opened successfully")
+        ensureIndexesAndPragmas(db)
         return db
     }
 
-    private fun validateDatabase(db: SQLiteDatabase) {
+    private fun ensureIndexesAndPragmas(db: SQLiteDatabase) {
         try {
-            val lineCount = getLineCount(db)
-            val translationCount = getTranslationCount(db)
-            Log.d(TAG, "=== Startup SQLite Database Validation ===")
-            Log.d(TAG, "Database path: ${db.path}")
-            Log.d(TAG, "Database exists: ${File(db.path).exists()}")
-            Log.d(TAG, "Database size: ${File(db.path).length()} bytes")
-            Log.d(TAG, "Line count (SELECT COUNT(*) FROM lines): $lineCount")
-            Log.d(TAG, "Translation count (SELECT COUNT(*) FROM translations): $translationCount")
+            db.execSQL("PRAGMA journal_mode = WAL;")
+            db.execSQL("PRAGMA synchronous = NORMAL;")
+            db.execSQL("PRAGMA cache_size = -8000;")
 
-            val ang1Lines = searchByAng(1)
-            Log.d(TAG, "Rows returned for Ang 1: ${ang1Lines.size}")
-            if (ang1Lines.isNotEmpty()) {
-                val sample = ang1Lines.first()
-                Log.d(TAG, "Sample Ang 1 row: gurmukhi='${sample.line.gurmukhi}', translation='${sample.translation}'")
-            } else {
-                Log.e(TAG, "WARNING: 0 rows returned for Ang 1!")
-            }
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_lines_shabad_id ON lines(shabad_id);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_lines_source_page ON lines(source_page);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_lines_order_id ON lines(order_id);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_lines_first_letters ON lines(first_letters);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_shabads_source_id ON shabads(source_id);")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_translations_line_source ON translations(line_id, translation_source_id);")
         } catch (e: Exception) {
-            Log.e(TAG, "Error during database validation: ${e.message}", e)
+            Log.e(TAG, "Error configuring pragmas or indexes: ${e.message}")
         }
     }
 
     fun searchByAng(ang: Int): List<LineWithTranslation> {
+        angCache.get(ang)?.let { return it }
+
         val db = getReadableDb()
         val sql = """
             SELECT l.id, l.shabad_id, l.source_page, l.source_line, l.first_letters, 
@@ -103,7 +118,7 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
 
             while (cursor.moveToNext()) {
                 val rawRaag = if (raagIdx >= 0 && !cursor.isNull(raagIdx)) cursor.getString(raagIdx) else ""
-                val raagUnicode = convertGurbaniAkharToUnicode(rawRaag)
+                val raagUnicode = if (rawRaag.isNotEmpty()) convertGurbaniAkharToUnicode(rawRaag) else ""
 
                 val line = LineEntity(
                     id = if (idIdx >= 0 && !cursor.isNull(idIdx)) cursor.getString(idIdx) else "",
@@ -124,10 +139,13 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
                 list.add(LineWithTranslation(line = line, translation = translation, punjabiTranslation = punjabiTranslation))
             }
         }
+        angCache.put(ang, list)
         return list
     }
 
     fun getShabadByShabadId(shabadId: String): List<LineWithTranslation> {
+        shabadCache.get(shabadId)?.let { return it }
+
         val db = getReadableDb()
         val sql = """
             SELECT l.id, l.shabad_id, l.source_page, l.source_line, l.first_letters, 
@@ -164,7 +182,7 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
 
             while (cursor.moveToNext()) {
                 val rawRaag = if (raagIdx >= 0 && !cursor.isNull(raagIdx)) cursor.getString(raagIdx) else ""
-                val raagUnicode = convertGurbaniAkharToUnicode(rawRaag)
+                val raagUnicode = if (rawRaag.isNotEmpty()) convertGurbaniAkharToUnicode(rawRaag) else ""
 
                 val line = LineEntity(
                     id = if (idIdx >= 0 && !cursor.isNull(idIdx)) cursor.getString(idIdx) else "",
@@ -185,6 +203,7 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
                 list.add(LineWithTranslation(line = line, translation = translation, punjabiTranslation = punjabiTranslation))
             }
         }
+        shabadCache.put(shabadId, list)
         return list
     }
 
@@ -319,6 +338,8 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
     @Volatile
     private var cachedPunjabiMap: Map<String, String>? = null
 
+    fun hasPunjabiMap(): Boolean = cachedPunjabiMap != null
+
     fun getPunjabiTranslationMap(): Map<String, String> {
         cachedPunjabiMap?.let { return it }
         return synchronized(this) {
@@ -378,41 +399,30 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
         }
 
         private fun copyDatabaseIfNeeded(context: Context, dbFile: File) {
-            Log.d(TAG, "database path: ${dbFile.absolutePath}")
-            Log.d(TAG, "exists = ${dbFile.exists()}")
-            Log.d(TAG, "file size = ${if (dbFile.exists()) dbFile.length() else 0}")
-
             if (dbFile.exists() && dbFile.length() > MIN_SIZE) {
-                Log.d(TAG, "Valid database file already exists (${dbFile.length()} bytes)")
                 return
             }
 
             val parentDir = dbFile.parentFile
             if (parentDir != null && !parentDir.exists()) {
-                val created = parentDir.mkdirs()
-                Log.d(TAG, "Created databases directory: $created")
+                parentDir.mkdirs()
             }
 
             var copiedFromAssets = false
             val localTmpDb = File("/tmp/database.db")
             if (localTmpDb.exists() && localTmpDb.length() > MIN_SIZE) {
                 try {
-                    Log.d(TAG, "Copying local /tmp/database.db to ${dbFile.absolutePath}...")
                     localTmpDb.copyTo(dbFile, overwrite = true)
                     if (dbFile.exists() && dbFile.length() > MIN_SIZE) {
-                        Log.d(TAG, "Local copy successful")
                         copiedFromAssets = true
                     }
-                } catch (e: Exception) {
-                    Log.d(TAG, "Local /tmp/database.db copy failed: ${e.message}")
-                }
+                } catch (_: Exception) {}
             }
 
             if (!copiedFromAssets) {
                 try {
                     val assetList = context.assets.list("") ?: emptyArray()
                     if (DB_NAME in assetList) {
-                        Log.d(TAG, "Copying assets/$DB_NAME to ${dbFile.absolutePath}...")
                         context.assets.open(DB_NAME).use { input ->
                             FileOutputStream(dbFile).use { output ->
                                 input.copyTo(output)
@@ -420,13 +430,10 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
                             }
                         }
                         if (dbFile.exists() && dbFile.length() > MIN_SIZE) {
-                            Log.d(TAG, "copy successful")
                             copiedFromAssets = true
                         }
                     }
-                } catch (e: Exception) {
-                    Log.d(TAG, "Assets copy skipped or failed: ${e.message}")
-                }
+                } catch (_: Exception) {}
             }
 
             if (copiedFromAssets) return
@@ -484,7 +491,6 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
                         tempFile.copyTo(dbFile, overwrite = true)
                         try { tempFile.delete() } catch (_: Exception) {}
                     }
-                    Log.d(TAG, "copy successful")
                 } else {
                     val downloadedSize = if (tempFile.exists()) tempFile.length() else 0
                     if (tempFile.exists()) {
@@ -497,11 +503,8 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
                 if (tempFile.exists()) {
                     try { tempFile.delete() } catch (_: Exception) {}
                 }
-                throw IllegalStateException("Failed to initialize database from assets or $DB_URL: ${e.message}", e)
+                throw IllegalStateException("Failed to initialize database: ${e.message}", e)
             }
         }
     }
 }
-
-
-

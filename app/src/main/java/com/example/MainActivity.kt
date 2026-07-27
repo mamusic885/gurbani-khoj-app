@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
@@ -105,6 +106,14 @@ class MainActivity : ComponentActivity() {
     val viewModel = androidx.lifecycle.ViewModelProvider(this, viewModelFactory)[BookmarksViewModel::class.java]
     val settingsManager = SettingsManager(applicationContext)
 
+    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+      try {
+        SggsDatabase.getInstance(applicationContext).getReadableDb()
+      } catch (e: Exception) {
+        android.util.Log.e("MainActivity", "Error pre-opening SggsDatabase: ${e.message}")
+      }
+    }
+
     setContent {
       val settingsState by settingsManager.settings.collectAsStateWithLifecycle()
       val isDark = when (settingsState.themeMode) {
@@ -185,11 +194,8 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
     val versesArray = jsonObject.getJSONArray("verses")
     val verses = mutableListOf<Verse>()
 
-    val punjabiMap = try {
-      com.example.data.SggsDatabase.getInstance(context).getPunjabiTranslationMap()
-    } catch (e: Exception) {
-      emptyMap()
-    }
+    val sggsDb = com.example.data.SggsDatabase.getInstance(context)
+    val punjabiMap = if (sggsDb.hasPunjabiMap()) sggsDb.getPunjabiTranslationMap() else emptyMap()
 
     for (i in 0 until versesArray.length()) {
       val verseObj = versesArray.getJSONObject(i)
@@ -1354,9 +1360,30 @@ fun BaniDetailScreen(
   }
   var activeAngNum by remember(baniName) { mutableStateOf(initialAngNum) }
 
-  var sggsVerses by remember { mutableStateOf<List<Verse>>(emptyList()) }
-  var dynamicBaniTitle by remember { mutableStateOf(baniName) }
-  var isSggsLoading by remember(baniName, activeAngNum) { mutableStateOf(activeAngNum != null || baniName.startsWith("sggs_shabad_")) }
+  val sggsDb = remember { SggsDatabase.getInstance(context) }
+  val initialCachedData = remember(baniName, activeAngNum) {
+    if (activeAngNum != null) {
+      val cachedVerses = sggsDb.getCachedAngVerses(activeAngNum!!)
+      if (cachedVerses != null) {
+        val gurmukhiNumeral = convertToGurmukhiNumeral(activeAngNum!!)
+        val title = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ $gurmukhiNumeral)"
+        Pair(cachedVerses, title)
+      } else null
+    } else if (baniName.startsWith("sggs_shabad_")) {
+      val shabadId = baniName.removePrefix("sggs_shabad_")
+      val cachedPair = sggsDb.getCachedShabadVerses(shabadId)
+      if (cachedPair != null) {
+        Pair(cachedPair.first, cachedPair.second)
+      } else null
+    } else null
+  }
+
+  var sggsVerses by remember(baniName, activeAngNum) { mutableStateOf(initialCachedData?.first ?: emptyList()) }
+  var dynamicBaniTitle by remember(baniName, activeAngNum) { mutableStateOf(initialCachedData?.second ?: baniName) }
+  var isSggsLoading by remember(baniName, activeAngNum) {
+    mutableStateOf(initialCachedData == null && (activeAngNum != null || baniName.startsWith("sggs_shabad_")))
+  }
+  var showLoadingUI by remember(baniName, activeAngNum) { mutableStateOf(false) }
   var sggsErrorMessage by remember(baniName, activeAngNum) { mutableStateOf<String?>(null) }
 
   val effectiveFileName = remember(baniName, activeAngNum) {
@@ -1383,21 +1410,31 @@ fun BaniDetailScreen(
   }
 
   LaunchedEffect(baniName, activeAngNum) {
-    sggsVerses = emptyList()
     sggsErrorMessage = null
-    isSggsLoading = activeAngNum != null || baniName.startsWith("sggs_shabad_")
+    if (initialCachedData != null) {
+      isSggsLoading = false
+      showLoadingUI = false
+      return@LaunchedEffect
+    }
+
     if (activeAngNum != null || baniName.startsWith("sggs_shabad_")) {
+      isSggsLoading = true
+      showLoadingUI = false
+
+      val timerJob = launch {
+        kotlinx.coroutines.delay(150)
+        if (isSggsLoading) {
+          showLoadingUI = true
+        }
+      }
+
       try {
         withContext(Dispatchers.IO) {
-          val sggsDb = SggsDatabase.getInstance(context)
           if (activeAngNum != null) {
             val currentAng = activeAngNum!!
             val gurmukhiNumeral = convertToGurmukhiNumeral(currentAng)
-            withContext(Dispatchers.Main) {
-              dynamicBaniTitle = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ $gurmukhiNumeral)"
-            }
+            val title = "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ (ਅੰਗ $gurmukhiNumeral)"
             val entities = sggsDb.searchByAng(currentAng)
-            android.util.Log.d("BaniDetailScreen", "searchByAng($currentAng) returned ${entities.size} rows")
             if (entities.isNotEmpty()) {
               val verses = entities.mapIndexed { idx, item ->
                 Verse(
@@ -1408,20 +1445,25 @@ fun BaniDetailScreen(
                   punjabiTranslation = item.punjabiTranslation ?: item.line.punjabiTranslation
                 )
               }
+              sggsDb.putCachedAngVerses(currentAng, verses)
               withContext(Dispatchers.Main) {
+                dynamicBaniTitle = title
                 sggsVerses = verses
                 isSggsLoading = false
+                showLoadingUI = false
+                timerJob.cancel()
               }
             } else {
               withContext(Dispatchers.Main) {
                 isSggsLoading = false
+                showLoadingUI = false
+                timerJob.cancel()
                 sggsErrorMessage = "ਅੰਗ $currentAng ਲਈ ਕੋਈ ਬਾਣੀ ਨਹੀਂ ਮਿਲੀ।"
               }
             }
           } else if (baniName.startsWith("sggs_shabad_")) {
             val shabadId = baniName.removePrefix("sggs_shabad_")
             val lineEntities = sggsDb.getShabadByShabadId(shabadId)
-            android.util.Log.d("BaniDetailScreen", "getShabadByShabadId($shabadId) returned ${lineEntities.size} rows")
             if (lineEntities.isNotEmpty()) {
               val firstLine = lineEntities.first().line
               val raagSuffix = if (firstLine.raag.isNotEmpty()) " • ${firstLine.raag}" else ""
@@ -1435,14 +1477,19 @@ fun BaniDetailScreen(
                   punjabiTranslation = item.punjabiTranslation ?: item.line.punjabiTranslation
                 )
               }
+              sggsDb.putCachedShabadVerses(shabadId, verses, title)
               withContext(Dispatchers.Main) {
                 dynamicBaniTitle = title
                 sggsVerses = verses
                 isSggsLoading = false
+                showLoadingUI = false
+                timerJob.cancel()
               }
             } else {
               withContext(Dispatchers.Main) {
                 isSggsLoading = false
+                showLoadingUI = false
+                timerJob.cancel()
                 sggsErrorMessage = "ਸ਼ਬਦ $shabadId ਡਾਟਾਬੇਸ ਵਿੱਚ ਨਹੀਂ ਮਿਲਿਆ।"
               }
             }
@@ -1452,11 +1499,14 @@ fun BaniDetailScreen(
         android.util.Log.e("BaniDetailScreen", "Error loading SGGS content: ${e.message}", e)
         withContext(Dispatchers.Main) {
           isSggsLoading = false
+          showLoadingUI = false
+          timerJob.cancel()
           sggsErrorMessage = "ਤਰੁੱਟੀ: ${e.localizedMessage ?: e.message}"
         }
       }
     } else {
       isSggsLoading = false
+      showLoadingUI = false
     }
   }
 
@@ -1853,22 +1903,24 @@ fun BaniDetailScreen(
               )
 
               if (isSggsLoading) {
-                CircularProgressIndicator(
-                  color = SaffronPrimary,
-                  modifier = Modifier
-                    .size(36.dp)
-                    .padding(bottom = 12.dp)
-                )
-
-                Text(
-                  text = "ਬਾਣੀ ਲੋਡ ਹੋ ਰਹੀ ਹੈ...",
-                  style = MaterialTheme.typography.bodyMedium.copy(
-                    color = TextGray,
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
+                if (showLoadingUI) {
+                  CircularProgressIndicator(
+                    color = SaffronPrimary,
+                    modifier = Modifier
+                      .size(36.dp)
+                      .padding(bottom = 12.dp)
                   )
-                )
+
+                  Text(
+                    text = "ਬਾਣੀ ਲੋਡ ਹੋ ਰਹੀ ਹੈ...",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                      color = TextGray,
+                      fontSize = 14.sp,
+                      textAlign = TextAlign.Center,
+                      lineHeight = 20.sp
+                    )
+                  )
+                }
               } else {
                 Text(
                   text = sggsErrorMessage ?: "ਇਸ ਬਾਣੀ ਦਾ ਪਾਠ ਉਪਲਬਧ ਨਹੀਂ ਹੈ।",
