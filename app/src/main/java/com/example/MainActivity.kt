@@ -110,23 +110,6 @@ class MainActivity : ComponentActivity() {
       try {
         val db = SggsDatabase.getInstance(applicationContext)
         db.getReadableDb()
-        db.getPunjabiTranslationMap()
-        val nitnemFiles = listOf(
-          "japji_sahib.json",
-          "jaap_sahib.json",
-          "tav_prasad_savaiye.json",
-          "chaupai_sahib.json",
-          "anand_sahib.json",
-          "rehras_sahib.json",
-          "kirtan_sohila.json",
-          "ardas.json",
-          "aarti.json",
-          "asa_di_vaar.json",
-          "sri_sukhmani_sahib.json"
-        )
-        for (f in nitnemFiles) {
-          loadBaniFromAsset(applicationContext, f)
-        }
       } catch (e: Exception) {
         android.util.Log.e("MainActivity", "Error pre-opening SggsDatabase or preloading Banis: ${e.message}")
       }
@@ -215,7 +198,6 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
     val versesArray = jsonObject.getJSONArray("verses")
     val verses = mutableListOf<Verse>()
 
-    val punjabiMap = sggsDb.getPunjabiTranslationMap()
 
     for (i in 0 until versesArray.length()) {
       val verseObj = versesArray.getJSONObject(i)
@@ -227,15 +209,6 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
       val translation = verseObj.optString("translation", "")
       var punjabiTranslation = verseObj.optString("punjabiTranslation", verseObj.optString("punjabi_translation", ""))
 
-      if (punjabiTranslation.isEmpty() && punjabiMap.isNotEmpty()) {
-        val cleanLine = line.replace("॥", "").replace("।", "").replace("|", "").trim()
-        val cleanRawLine = rawLine.replace("॥", "").replace("।", "").replace("|", "").trim()
-        punjabiTranslation = punjabiMap[rawLine]
-          ?: punjabiMap[line]
-          ?: punjabiMap[cleanRawLine]
-          ?: punjabiMap[cleanLine]
-          ?: ""
-      }
 
       verses.add(Verse(id = id, index = i, line = line, pauseType = pauseType, bookmarked = bookmarked, translation = translation, punjabiTranslation = punjabiTranslation))
     }
@@ -2627,9 +2600,6 @@ fun SearchScreen(
 
   LaunchedEffect(Unit) {
     allSggsBanis = sggsBaniFiles.map { fileName ->
-      loadBaniFromAsset(context, fileName)
-    }
-    allNitnemBanis = nitnemBaniFiles.map { fileName ->
       loadBaniFromAsset(context, fileName)
     }
   }
