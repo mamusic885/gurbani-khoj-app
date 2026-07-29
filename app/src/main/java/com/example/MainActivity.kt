@@ -199,7 +199,11 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
     val title = convertGurbaniAkharToUnicode(rawTitle)
     val versesArray = jsonObject.getJSONArray("verses")
     val verses = mutableListOf<Verse>()
-
+val punjabiMap = try {
+    com.example.data.SggsDatabase.getInstance(context).getPunjabiTranslationMap()
+} catch (e: Exception) {
+    emptyMap()
+}
 
     for (i in 0 until versesArray.length()) {
       val verseObj = versesArray.getJSONObject(i)
@@ -210,7 +214,15 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
       val bookmarked = verseObj.optBoolean("bookmarked", false)
       val translation = verseObj.optString("translation", "")
       var punjabiTranslation = verseObj.optString("punjabiTranslation", verseObj.optString("punjabi_translation", ""))
-
+if (punjabiTranslation.isEmpty() && punjabiMap.isNotEmpty()) {
+    val cleanLine = line.replace("॥", "").replace("।", "").replace("|", "").trim()
+    val cleanRawLine = rawLine.replace("॥", "").replace("।", "").replace("|", "").trim()
+    punjabiTranslation = punjabiMap[rawLine]
+        ?: punjabiMap[line]
+        ?: punjabiMap[cleanRawLine]
+        ?: punjabiMap[cleanLine]
+        ?: ""
+}
 
       verses.add(Verse(id = id, index = i, line = line, pauseType = pauseType, bookmarked = bookmarked, translation = translation, punjabiTranslation = punjabiTranslation))
     }
