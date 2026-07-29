@@ -18,6 +18,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -442,18 +444,14 @@ fun HomeScreen(
               animationSpec = spring()
             )
           ) {
-            Text(
-              text = "ੴ",
-              style = MaterialTheme.typography.displayLarge.copy(
-                fontSize = 68.sp,
-                color = SaffronPrimary,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-              ),
-              modifier = Modifier
-                .padding(bottom = 2.dp)
-                .testTag("ek_onkar_logo")
-            )
+Image(
+    painter = painterResource(id = R.drawable.ek_onkar),
+    contentDescription = "Ek Onkar",
+    modifier = Modifier
+        .size(68.dp)
+        .padding(bottom = 2.dp)
+        .testTag("ek_onkar_logo")
+)            
           }
 
           // Animated App Title & Subtitle
