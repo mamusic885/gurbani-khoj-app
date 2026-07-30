@@ -97,7 +97,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.snapshotFlow
 import android.content.Intent
-
+private var cachedPunjabiTranslationMap: Map<String, String>? = null
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -200,12 +200,13 @@ fun loadBaniFromAsset(context: android.content.Context, fileName: String): Bani 
     val title = convertGurbaniAkharToUnicode(rawTitle)
     val versesArray = jsonObject.getJSONArray("verses")
     val verses = mutableListOf<Verse>()
-val punjabiMap = try {
-    com.example.data.SggsDatabase.getInstance(context).getPunjabiTranslationMap()
+val punjabiMap = cachedPunjabiTranslationMap ?: try {
+    val map = sggsDb.getPunjabiTranslationMap()
+    cachedPunjabiTranslationMap = map
+    map
 } catch (e: Exception) {
     emptyMap()
 }
-
     for (i in 0 until versesArray.length()) {
       val verseObj = versesArray.getJSONObject(i)
       val id = verseObj.optInt("id", i)
