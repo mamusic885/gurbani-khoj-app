@@ -64,7 +64,7 @@ class SggsDatabase private constructor(private val context: Context) : SQLiteOpe
         )
         openDb = db
         Log.d(TAG, "SQLite Database opened successfully")
-        ensureIndexesAndPragmas(db)
+// ensureIndexesAndPragmas(db)
         return db
     }
 
