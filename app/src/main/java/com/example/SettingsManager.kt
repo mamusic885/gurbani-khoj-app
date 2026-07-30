@@ -57,8 +57,8 @@ class SettingsManager(private val context: Context) {
                 vishramColor = prefs[VISHRAM_COLOR_KEY] ?: "#FF9933",
                 keepScreenOn = prefs[KEEP_SCREEN_ON_KEY] ?: false,
                 isFirstLaunchDone = prefs[FIRST_LAUNCH_KEY] ?: false,
-                showTranslation = prefs[SHOW_TRANSLATION_KEY] ?: true,
-                showPunjabiTranslation = prefs[SHOW_PUNJABI_TRANSLATION_KEY] ?: true
+                showTranslation = prefs[SHOW_TRANSLATION_KEY] ?: false,
+                showPunjabiTranslation = prefs[SHOW_PUNJABI_TRANSLATION_KEY] ?: false
             )
         }
         .stateIn(

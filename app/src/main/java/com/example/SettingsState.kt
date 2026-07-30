@@ -8,6 +8,6 @@ data class SettingsState(
     val vishramColor: String = "#FF9933",
     val keepScreenOn: Boolean = false,
     val isFirstLaunchDone: Boolean = false,
-    val showTranslation: Boolean = true,
-    val showPunjabiTranslation: Boolean = true
+val showTranslation: Boolean = false,
+val showPunjabiTranslation: Boolean = false
 )
