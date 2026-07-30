@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
       try {
         val db = SggsDatabase.getInstance(applicationContext)
         db.getReadableDb()
+        db.getPunjabiTranslationMap()
       } catch (e: Exception) {
         android.util.Log.e("MainActivity", "Error pre-opening SggsDatabase or preloading Banis: ${e.message}")
       }
