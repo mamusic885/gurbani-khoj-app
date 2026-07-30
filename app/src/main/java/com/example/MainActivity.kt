@@ -108,16 +108,13 @@ class MainActivity : ComponentActivity() {
     val viewModel = androidx.lifecycle.ViewModelProvider(this, viewModelFactory)[BookmarksViewModel::class.java]
     val settingsManager = SettingsManager(applicationContext)
 
-    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-      try {
-        val db = SggsDatabase.getInstance(applicationContext)
-        db.getReadableDb()
-        db.getPunjabiTranslationMap()
-      } catch (e: Exception) {
-        android.util.Log.e("MainActivity", "Error pre-opening SggsDatabase or preloading Banis: ${e.message}")
-      }
+kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+    try {
+        SggsDatabase.getInstance(applicationContext).getReadableDb()
+    } catch (e: Exception) {
+        android.util.Log.e("MainActivity", "Error pre-opening database: ${e.message}")
     }
-
+}
     setContent {
       val settingsState by settingsManager.settings.collectAsStateWithLifecycle()
       val isDark = when (settingsState.themeMode) {
