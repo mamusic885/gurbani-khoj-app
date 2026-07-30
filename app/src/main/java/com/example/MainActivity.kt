@@ -615,19 +615,6 @@ Image(
             .fillMaxWidth()
             .padding(top = 8.dp, bottom = 16.dp)
         ) {
-          Text(
-            text = "ੴ ਸਤਿਗੁਰ ਪ੍ਰਸਾਦਿ",
-            style = MaterialTheme.typography.bodySmall.copy(
-              color = SaffronPrimary,
-              fontWeight = FontWeight.SemiBold,
-              fontSize = 13.sp,
-              letterSpacing = 1.5.sp,
-              textAlign = TextAlign.Center
-            ),
-            modifier = Modifier
-              .padding(bottom = 4.dp)
-              .testTag("footer_attribution")
-          )
 
           Text(
             text = "Made by Manjot Singh M.Aa*",
@@ -3839,7 +3826,7 @@ fun AboutScreen(
               horizontalAlignment = Alignment.CenterHorizontally
             ) {
               Text(
-                text = "ੴ",
+text = "ਵਾਹਿਗੁਰੂ",
                 style = MaterialTheme.typography.displayMedium.copy(
                   fontSize = 52.sp,
                   color = SaffronPrimary,
